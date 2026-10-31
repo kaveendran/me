@@ -7,13 +7,17 @@ import json
 import os
 import shutil
 import sys
-from datetime import date, timedelta
+from contextlib import closing
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from . import bootstrap, db, doctor, guard, vault
+from . import bootstrap, db, doctor, guard, notify, schedule, sheets, vault
+from . import brief as briefmod
+from . import day as daymod
+from . import today as todaymod
 from .config import HOME, ConfigError, load
 
-RITUALS = {"diary": "/me:diary"}
+RITUALS = {"diary": "/me:diary", "plan": "/me:plan", "shutdown": "/me:shutdown"}
 
 
 def parse_day(value: str | None) -> date:
@@ -32,6 +36,24 @@ def plugin_installed() -> bool:
         return any(k.startswith("me@") for k in json.loads(registry.read_text()).get("plugins", {}))
     except (OSError, ValueError):
         return False
+
+
+def read_json_stdin() -> dict:
+    try:
+        data = json.loads(sys.stdin.read())
+    except ValueError as e:
+        raise ValueError(f"stdin is not valid JSON: {e}") from e
+    if not isinstance(data, dict):
+        raise ValueError("stdin JSON must be an object")
+    return data
+
+
+def skip_scheduled(cfg, conn, day: date) -> str | None:
+    if db.is_paused(conn):
+        return "paused"
+    if not cfg.is_workday(day):
+        return "not a workday"
+    return None
 
 
 def cmd_init(args) -> int:
@@ -55,18 +77,167 @@ def cmd_capture(args) -> int:
     return 0
 
 
-def cmd_ritual(args) -> int:
+def launch_ritual(name: str) -> int:
     cfg = load()
     claude_bin = shutil.which("claude")
     if not claude_bin:
         print("claude CLI not found on PATH", file=sys.stderr)
         return 1
-    argv = [claude_bin, "--settings", str(cfg.claude_settings)]
+    argv = [claude_bin, "--settings", str(cfg.claude_settings), "--model", cfg.model("interactive")]
     if not plugin_installed():
         argv += ["--plugin-dir", str(cfg.plugin_dir)]
-    argv.append(RITUALS[args.command])
+    argv.append(RITUALS[name])
     os.chdir(cfg.home)
     os.execv(claude_bin, argv)
+
+
+def cmd_diary(args) -> int:
+    return launch_ritual("diary")
+
+
+def cmd_brief(args) -> int:
+    cfg = load()
+    now = datetime.now()
+    day = parse_day(args.date) if args.date else now.date()
+    with closing(db.connect(cfg.db_path)) as conn:
+        if args.scheduled and (reason := skip_scheduled(cfg, conn, day)):
+            print(f"skipped: {reason}")
+            return 0
+        if args.if_stale and not todaymod.is_stale(todaymod.load(cfg, day), now):
+            print("brief is fresh; skipped (drop --if-stale to rebuild)")
+            return 0
+        t = briefmod.run(cfg, conn, day, now)
+    reviews = sum(1 for r in t["reviews"] if not r["stale"])
+    summary = f"{len(t['events'])} meetings · {reviews} reviews · {len(t['jira'])} Jira"
+    print(f"brief written to {vault.note_path(cfg, 'daily', day)}\n{t['headline']}\n{summary}")
+    for err in t["errors"]:
+        print(f"  ! {err}", file=sys.stderr)
+    if args.scheduled:
+        notify.desktop("Brief ready", t["headline"] or summary, summary)
+    return 0
+
+
+def cmd_today(args) -> int:
+    cfg = load()
+    data = todaymod.load(cfg)
+    if args.json:
+        print(json.dumps(data or {"date": date.today().isoformat(), "missing": True}, indent=1))
+        return 0
+    if not data:
+        print("No brief yet today. Run `me brief`.")
+        return 1
+    path = vault.note_path(cfg, "daily", date.today())
+    text = path.read_text(encoding="utf-8") if path.exists() else ""
+    print(vault.read_section(text, "brief") or briefmod.render(data, cfg.section("jira").get("site")))
+    plan = vault.read_section(text, "plan")
+    if plan:
+        print("\n## Plan\n" + plan)
+    return 0
+
+
+def cmd_plan(args) -> int:
+    if not args.commit:
+        return launch_ritual("plan")
+    cfg = load()
+    with closing(db.connect(cfg.db_path)) as conn:
+        path = daymod.commit_plan(cfg, conn, parse_day(args.date), read_json_stdin())
+    print(f"plan written to {path}")
+    return 0
+
+
+def cmd_shutdown(args) -> int:
+    if not (args.actuals or args.commit):
+        return launch_ritual("shutdown")
+    cfg = load()
+    day = parse_day(args.date)
+    actual = daymod.actuals(cfg, day, todaymod.load(cfg, day))
+    if args.actuals:
+        print(json.dumps(actual, indent=1))
+        return 0
+    with closing(db.connect(cfg.db_path)) as conn:
+        for path in daymod.commit_shutdown(cfg, conn, day, read_json_stdin(), actual):
+            print(f"wrote {path}")
+    return 0
+
+
+def cmd_sheets(args) -> int:
+    cfg = load()
+    with closing(db.connect(cfg.db_path)) as conn:
+        if args.sheets_cmd == "init":
+            out = sheets.init(cfg, conn)
+            verb = "created" if out["created"] else "already configured"
+            print(f"{verb}:\n  Work Log      {sheets.url(out['worklog_id'])}\n  Goals & OKRs  {sheets.url(out['okr_id'])}")
+        elif args.sheets_cmd == "sync":
+            out = sheets.sync(cfg, conn)
+            print(f"{out['status']}: {out['detail']}")
+        else:
+            s = cfg.section("sheets")
+            for key in ("worklog_id", "okr_id"):
+                print(f"{key:<11} {sheets.url(s[key]) if s.get(key) else 'not set'}")
+            rows = sheets.pending(conn)
+            print(f"pending     {len(rows)} day(s) not yet in the Work Log sheet")
+    return 0
+
+
+def cmd_schedule(args) -> int:
+    cfg = load()
+    fn = {"install": schedule.install, "uninstall": schedule.uninstall, "status": schedule.status}[args.schedule_cmd]
+    for line in fn(cfg) or ["nothing installed"]:
+        print(line)
+    return 0
+
+
+def cmd_pause(args) -> int:
+    cfg = load()
+    with closing(db.connect(cfg.db_path)) as conn:
+        db.set_cursor(conn, "paused", "1" if args.command == "pause" else "0")
+    print("scheduled jobs paused" if args.command == "pause" else "scheduled jobs resumed")
+    return 0
+
+
+def cmd_nudge(args) -> int:
+    cfg = load()
+    day = date.today()
+    with closing(db.connect(cfg.db_path)) as conn:
+        if args.scheduled and (reason := skip_scheduled(cfg, conn, day)):
+            print(f"skipped: {reason}")
+            return 0
+        _, actual = db.get_worklog(conn, day.isoformat())
+    if actual.get("at"):
+        print("shutdown already done today")
+        return 0
+    done, total = daymod.plan_progress(cfg, day)
+    progress = f"Top 3: {done}/{total} done. " if total else ""
+    notify.desktop("Time to wrap up", f"{progress}Run `me shutdown` to close the day.")
+    print("nudged")
+    return 0
+
+
+def cmd_statusline(args) -> int:
+    try:
+        cfg = load()
+        with closing(db.connect(cfg.db_path)) as conn:
+            paused = db.is_paused(conn)
+        print(todaymod.statusline(cfg, paused=paused))
+    except Exception:  # noqa: BLE001 - a status line must never crash the UI
+        print("me")
+    return 0
+
+
+def cmd_hook(args) -> int:
+    if args.name == "privacy-guard":
+        return guard.hook_main()
+    try:
+        event = json.load(sys.stdin)
+        cfg = load()
+    except (ValueError, OSError):
+        return 0
+    cwd = Path(event.get("cwd") or os.getcwd()).resolve()
+    roots = [cfg.home.resolve()] + [z.vault.resolve() for z in cfg.zones.values() if not z.public]
+    if any(cwd.is_relative_to(r) for r in roots):
+        json.dump({"hookSpecificOutput": {"hookEventName": "SessionStart",
+                                          "additionalContext": todaymod.session_context(cfg)}}, sys.stdout)
+    return 0
 
 
 def cmd_vault(args) -> int:
@@ -126,8 +297,46 @@ def build_parser() -> argparse.ArgumentParser:
         c.add_argument("text", nargs="+", help="text, or - to read stdin")
         c.set_defaults(func=cmd_capture)
 
-    for name in RITUALS:
-        sub.add_parser(name, help=f"open an interactive {name} session in the harness").set_defaults(func=cmd_ritual)
+    sub.add_parser("diary", help="open an interactive diary session").set_defaults(func=cmd_diary)
+
+    b = sub.add_parser("brief", help="gather the day and write the morning brief")
+    b.add_argument("--date")
+    b.add_argument("--if-stale", action="store_true", help="skip when today's brief is under 6h old")
+    b.add_argument("--scheduled", action="store_true", help="launchd mode: honour pause/workdays, notify when done")
+    b.set_defaults(func=cmd_brief)
+
+    t = sub.add_parser("today", help="print today's brief and plan")
+    t.add_argument("--json", action="store_true", help="print state/today.json")
+    t.set_defaults(func=cmd_today)
+
+    pl = sub.add_parser("plan", help="open the planning session, or commit a plan (JSON on stdin)")
+    pl.add_argument("--commit", action="store_true")
+    pl.add_argument("--date")
+    pl.set_defaults(func=cmd_plan)
+
+    sd = sub.add_parser("shutdown", help="open the shutdown session, print actuals, or commit (JSON on stdin)")
+    sd.add_argument("--actuals", action="store_true")
+    sd.add_argument("--commit", action="store_true")
+    sd.add_argument("--date")
+    sd.set_defaults(func=cmd_shutdown)
+
+    sh = sub.add_parser("sheets", help="Work Log and Goals/OKR spreadsheets")
+    sh.add_argument("sheets_cmd", choices=["init", "sync", "status"])
+    sh.set_defaults(func=cmd_sheets)
+
+    sc = sub.add_parser("schedule", help="launchd jobs (brief, shutdown nudge)")
+    sc.add_argument("schedule_cmd", choices=["install", "uninstall", "status"])
+    sc.set_defaults(func=cmd_schedule)
+
+    for name in ("pause", "resume"):
+        sub.add_parser(name, help=f"{name} all scheduled jobs").set_defaults(func=cmd_pause)
+
+    n = sub.add_parser("nudge", help="send a reminder notification")
+    n.add_argument("what", choices=["shutdown"])
+    n.add_argument("--scheduled", action="store_true")
+    n.set_defaults(func=cmd_nudge)
+
+    sub.add_parser("statusline", help="Claude Code status line").set_defaults(func=cmd_statusline)
 
     v = sub.add_parser("vault", help="deterministic vault reads and writes")
     vs = v.add_subparsers(dest="vault_cmd", required=True)
@@ -148,8 +357,8 @@ def build_parser() -> argparse.ArgumentParser:
     v.set_defaults(func=cmd_vault)
 
     h = sub.add_parser("hook", help="Claude Code hook entry points")
-    h.add_argument("name", choices=["privacy-guard"])
-    h.set_defaults(func=lambda a: guard.hook_main())
+    h.add_argument("name", choices=["privacy-guard", "session-start"])
+    h.set_defaults(func=cmd_hook)
     return p
 
 
@@ -160,7 +369,7 @@ def main(argv: list[str] | None = None) -> int:
     except ConfigError as e:
         print(f"config error: {e}", file=sys.stderr)
         return 2
-    except ValueError as e:
+    except (ValueError, RuntimeError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
 

@@ -1,0 +1,17 @@
+{
+  "enabledPlugins": {
+    "cognee-memory@cognee": false
+  },
+  "permissions": {
+    "deny": [
+      "mcp__claude_ai_Google_Calendar__delete_event",
+      "mcp__claude_ai_Google_Drive__trash_file",
+      "mcp__claude_ai_Google_Drive__share_file",
+      "mcp__claude_ai_Gmail__trash_message",
+      "mcp__claude_ai_Gmail__trash_thread",
+      "Bash(gh pr merge:*)",
+      "Bash(gh pr close:*)",
+      "Bash(gh repo delete:*)"
+    ]
+  }
+}

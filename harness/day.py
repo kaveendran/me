@@ -112,7 +112,7 @@ def carry_candidates(cfg: Config, day: date) -> dict:
     return {"carry": carry, "inbox_todos": inbox, "open_loops": unchecked(diary[1]) if diary else []}
 
 
-def _ref_md(ref: str | None, site: str | None) -> str:
+def ref_md(ref: str | None, site: str | None) -> str:
     if not ref:
         return ""
     if ref.startswith("http"):
@@ -140,7 +140,7 @@ def render_plan(data: dict, site: str | None, at: datetime) -> str:
     for t in data["top3"]:
         extra = [f"~{t['est_min']}m"] if t.get("est_min") else []
         if t.get("ref"):
-            extra.append(_ref_md(t["ref"], site))
+            extra.append(ref_md(t["ref"], site))
         lines.append(f"- [ ] {t['title']}" + (" · " + " · ".join(extra) if extra else ""))
     if data.get("blocks"):
         lines += ["", "**Blocks**"] + [f"- {b['start']}–{b['end']} {b['task']}" for b in data["blocks"]]

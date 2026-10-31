@@ -58,5 +58,22 @@
       "Bash(gh pr close:*)",
       "Bash(gh repo delete:*)"
     ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "me statusline"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "me hook session-start",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
   }
 }

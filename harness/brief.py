@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from . import claude, db, day as daymod, github, scouts, today as todaymod, vault
 from .config import Config
@@ -88,7 +88,7 @@ def gather(cfg: Config, day: date, now: datetime) -> dict:
     all_events = cal.get("events", [])
     events = daymod.timed_events(all_events, day)
     bounds = daymod.work_bounds(cfg, day)
-    tomorrow = [e for e in daymod.timed_events(all_events, date.fromordinal(day.toordinal() + 1))][:3]
+    tomorrow = daymod.timed_events(all_events, day + timedelta(days=1))[:3]
     return {
         "github": gh, "events": events, "tomorrow": tomorrow,
         "all_day": [e["title"] for e in all_events if e.get("all_day") and str(e.get("start", "")).startswith(day.isoformat())],
@@ -170,7 +170,7 @@ def render(t: dict, site: str | None) -> str:
     if t["top3"]:
         lines.append("**Proposed Top 3** (run `me plan` to commit)")
         for i, item in enumerate(t["top3"], 1):
-            ref = dayref(item.get("ref"), site)
+            ref = daymod.ref_md(item.get("ref"), site)
             est = f" · ~{item['est_min']}m" if item.get("est_min") else ""
             lines.append(f"{i}. {item['title']}: {item['why']}{est}{' · ' + ref if ref else ''}")
         lines.append("")
@@ -191,8 +191,8 @@ def render(t: dict, site: str | None) -> str:
     todo = [j for j in t["jira"] if j.get("status_category") == "To Do"]
     if active or todo:
         lines.append("**Jira**: " + "; ".join(filter(None, [
-            ("in progress " + ", ".join(dayref(j["key"], site) for j in active)) if active else "",
-            ("to do " + ", ".join(dayref(j["key"], site) for j in todo[:6])) if todo else "",
+            ("in progress " + ", ".join(daymod.ref_md(j["key"], site) for j in active)) if active else "",
+            ("to do " + ", ".join(daymod.ref_md(j["key"], site) for j in todo[:6])) if todo else "",
         ])))
     if t["carry"]:
         lines.append("**Carried over**: " + "; ".join(t["carry"][:6]))
@@ -206,7 +206,3 @@ def render(t: dict, site: str | None) -> str:
     if t["errors"]:
         lines += ["", "> [!warning]- Gathering problems", *[f"> - {e}" for e in t["errors"]]]
     return "\n".join(lines).rstrip()
-
-
-def dayref(ref: str | None, site: str | None) -> str:
-    return daymod._ref_md(ref, site)
