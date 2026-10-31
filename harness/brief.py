@@ -104,7 +104,7 @@ def synthesize(cfg: Config, conn, day: date, gathered: dict) -> dict:
                                  data=json.dumps(_compact(gathered), indent=1, default=str))
     started = db.now_iso()
     result = claude.run(prompt, cwd=cfg.home, model=cfg.model("headless"), max_turns=2, json_schema=SYNTH_SCHEMA,
-                        settings=cfg.headless_settings, persist=False, timeout=300)
+                        settings=cfg.headless_settings, persist=False, mcp=False, timeout=300)
     db.record_run(conn, agent="brief-synth", model=cfg.model("headless"), started=started, result=result)
     out = result.structured if isinstance(result.structured, dict) else {}
     if not result.ok:

@@ -81,6 +81,7 @@ OKR_SCHEMA = {
 
 def _scout(cfg: Config, agent: str, prompt: str, tools: tuple[str, ...], schema: dict) -> dict:
     # Scouts run in parallel threads, so each records its run on its own connection.
+    prompt += " Put text in errors only when a tool call fails; an empty result is not an error."
     started = db.now_iso()
     result = claude.run(
         prompt, cwd=cfg.home, model=cfg.model("scout"), max_turns=6, allowed_tools=tools,

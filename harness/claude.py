@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
+import signal
 import subprocess
 import threading
+import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,6 +39,7 @@ def build_command(
     plugin_dir: Path | None = None,
     settings: Path | None = None,
     persist: bool = True,
+    mcp: bool = True,
     claude_bin: str = "claude",
 ) -> list[str]:
     cmd = [claude_bin, "-p", prompt, "--output-format", "stream-json", "--verbose"]
@@ -59,6 +63,9 @@ def build_command(
         cmd += ["--settings", str(settings)]
     if not persist:
         cmd.append("--no-session-persistence")
+    if not mcp:
+        # No MCP servers or connectors: their tool schemas are most of the prompt.
+        cmd.append("--strict-mcp-config")
     return cmd
 
 
@@ -100,6 +107,10 @@ def parse_events(lines: Iterable[str], on_event: Callable[[dict], None] | None =
     return result
 
 
+class _Abort(Exception):
+    pass
+
+
 def run(
     prompt: str,
     *,
@@ -115,33 +126,59 @@ def run(
     if not claude_bin:
         return RunResult(error="claude CLI not found on PATH")
     cmd = build_command(prompt, claude_bin=claude_bin, **options)
-    proc = subprocess.Popen(
-        cmd, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE, text=True, bufsize=1,
-    )
     timed_out = threading.Event()
     missing_tools = threading.Event()
+    stderr_chunks: list[str] = []
 
-    def kill() -> None:
-        timed_out.set()
-        proc.kill()
+    with subprocess.Popen(
+        cmd, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, text=True, bufsize=1, start_new_session=True,
+    ) as proc:
+        def stop() -> None:
+            # Kill the whole group: MCP servers and other children hold our pipes open.
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except OSError:  # group already gone, or holds a process we may not signal
+                pass
 
-    def handle(event: dict) -> None:
-        if require_tool_prefix and event.get("type") == "system" and event.get("subtype") == "init":
-            if not any(str(t).startswith(require_tool_prefix) for t in event.get("tools") or []):
-                missing_tools.set()
-                proc.kill()
-        if on_event:
-            on_event(event)
+        def kill() -> None:
+            timed_out.set()
+            stop()
 
-    timer = threading.Timer(timeout, kill)
-    timer.start()
-    try:
-        result = parse_events(proc.stdout, handle)
-        stderr = proc.stderr.read()
+        def handle(event: dict) -> None:
+            if require_tool_prefix and event.get("type") == "system" and event.get("subtype") == "init":
+                if not any(str(t).startswith(require_tool_prefix) for t in event.get("tools") or []):
+                    missing_tools.set()
+                    raise _Abort
+            if on_event:
+                on_event(event)
+
+        # Drain stderr concurrently so a chatty stderr can't fill its pipe and stall stdout.
+        drain = threading.Thread(target=lambda: stderr_chunks.append(proc.stderr.read()), daemon=True)
+        drain.start()
+        timer = threading.Timer(timeout, kill)
+        timer.start()
+        try:
+            result = parse_events(proc.stdout, handle)
+        except _Abort:
+            result = RunResult()
+        finally:
+            timer.cancel()
+        if missing_tools.is_set() or timed_out.is_set():
+            stop()
+            proc.wait()
+            # A child forked while the parent was dying escapes the first kill and
+            # keeps our pipes open; keep killing the group until it is empty.
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except OSError:
+                    break
+                time.sleep(0.02)
         proc.wait()
-    finally:
-        timer.cancel()
+        drain.join(timeout=5)
+    stderr = "".join(stderr_chunks)
     if missing_tools.is_set():
         result.ok, result.error = False, f"no tools matching {require_tool_prefix} (connector not enabled)"
     elif timed_out.is_set():

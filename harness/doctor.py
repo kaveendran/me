@@ -9,7 +9,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from . import claude, db
+from . import claude, db, schedule, sheets
 from .bootstrap import git_remotes, public_gitignore_missing
 from .config import HOME, ConfigError, load, load_autonomy
 
@@ -111,16 +111,32 @@ def checks(live: bool = False):
     yield (OK if jira.get("cloud_id") else WARN), "jira config", jira.get("site") or "site/cloud_id not set"
     ntfy = cfg.section("ntfy")
     yield (OK if ntfy.get("topic") else WARN), "ntfy topic", "configured" if ntfy.get("topic") else "not set"
-    sheets = cfg.section("sheets")
-    have = [k for k in ("worklog_id", "okr_id") if sheets.get(k)]
-    yield (OK if len(have) == 2 else WARN), "sheets", f"{len(have)}/2 configured"
+    sheets_cfg = cfg.section("sheets")
+    have = [k for k in ("worklog_id", "okr_id") if sheets_cfg.get(k)]
+    yield (OK if len(have) == 2 else WARN), "sheets", f"{len(have)}/2 created" if have else "run `me sheets init`"
+    try:
+        conn = db.connect(cfg.db_path)
+        last = conn.execute("SELECT status, error FROM runs WHERE agent = 'sheets-sync' ORDER BY id DESC LIMIT 1").fetchone()
+        pending = len(sheets.pending(conn))
+    except Exception:  # noqa: BLE001
+        last, pending = None, 0
+    if last and last["error"] and "connector not enabled" in last["error"]:
+        yield WARN, "sheets sync", f"Google Sheets connector off; {pending} day(s) waiting locally"
+    elif pending:
+        yield WARN, "sheets sync", f"{pending} day(s) waiting; run `me sheets sync`"
+
+    jobs = schedule.status(cfg)
+    installed = [j for j in jobs if "not installed" not in j]
+    yield (OK if len(installed) == len(jobs) else WARN), "schedule", f"{len(installed)}/{len(jobs)} launchd jobs installed"
+    if not (cfg.home / ".claude" / "settings.json").exists():
+        yield WARN, "project settings", "plain `claude` here still records to Cognee; cp config/claude-settings.json .claude/settings.json"
 
     if live:
         r = claude.run(
             "Connectivity check. Call list_calendars, getAccessibleAtlassianResources, and Google Drive "
             "search_files for one spreadsheet. Call nothing else. Report in the schema.",
-            cwd=cfg.home, model=cfg.section("models").get("headless", "sonnet"), max_turns=8,
-            allowed_tools=LIVE_TOOLS, json_schema=LIVE_SCHEMA, settings=cfg.claude_settings, timeout=180,
+            cwd=cfg.home, model=cfg.model("scout"), max_turns=8, allowed_tools=LIVE_TOOLS, json_schema=LIVE_SCHEMA,
+            settings=cfg.headless_settings, persist=False, timeout=180,
         )
         s = r.structured or {}
         for key, name in (("calendar_ok", "calendar"), ("atlassian_ok", "jira"), ("drive_ok", "drive/sheets")):

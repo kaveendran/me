@@ -72,7 +72,9 @@ def focus_windows(events: list[dict], bounds: tuple[datetime, datetime], now: da
                   min_minutes: int = 45) -> list[dict]:
     ws, we = bounds
     cursor = ws
-    if now and ws < now < we:
+    if now and now >= we:
+        return []
+    if now and ws < now:
         cursor = (now + timedelta(minutes=14)).replace(second=0, microsecond=0)
         cursor -= timedelta(minutes=cursor.minute % 15)
     windows = []

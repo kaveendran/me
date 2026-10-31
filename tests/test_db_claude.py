@@ -11,19 +11,26 @@ class DbTest(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.path = Path(self._tmp.name) / "state" / "me.db"
+        self.conns = []
 
     def tearDown(self):
+        for conn in self.conns:
+            conn.close()
         self._tmp.cleanup()
 
+    def connect(self):
+        conn = db.connect(self.path)
+        self.conns.append(conn)
+        return conn
+
     def test_migrate_is_idempotent(self):
-        conn = db.connect(self.path)
+        conn = self.connect()
         self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], len(db.MIGRATIONS))
-        conn.close()
-        conn = db.connect(self.path)
+        conn = self.connect()
         self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], len(db.MIGRATIONS))
 
     def test_record_run_and_cursors(self):
-        conn = db.connect(self.path)
+        conn = self.connect()
         result = claude.RunResult(ok=True, cost_usd=0.21, turns=6, session_id="s1")
         run_id = db.record_run(conn, agent="brief", model="sonnet", started=db.now_iso(), result=result)
         row = conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
@@ -34,7 +41,7 @@ class DbTest(unittest.TestCase):
         self.assertEqual(db.get_cursor(conn, "brief.last"), "b")
 
     def test_proposal_status_is_constrained(self):
-        conn = db.connect(self.path)
+        conn = self.connect()
         with self.assertRaises(sqlite3.IntegrityError):
             conn.execute(
                 "INSERT INTO proposals (id, agent, action, payload, status, created) VALUES (?, ?, ?, ?, ?, ?)",
