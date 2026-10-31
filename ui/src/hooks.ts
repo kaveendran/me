@@ -24,6 +24,8 @@ export interface Resource<T> {
   loading: boolean; // true only while there is no data yet
   refreshing: boolean;
   refresh: () => Promise<void>;
+  /** Replace the data with a result fetched elsewhere; drops any older in-flight refresh. */
+  set: (d: T) => void;
   updatedAt: Date | null;
 }
 
@@ -67,6 +69,14 @@ export function useResource<T>(
     }
   }, []);
 
+  const set = useCallback((d: T) => {
+    ctrlRef.current?.abort();
+    seq.current++;
+    setData(d);
+    setError(null);
+    setUpdatedAt(new Date());
+  }, []);
+
   useEffect(() => {
     setData(null);
     setError(null);
@@ -96,6 +106,7 @@ export function useResource<T>(
     loading: data === null && error === null,
     refreshing: inFlight > 0,
     refresh,
+    set,
     updatedAt,
   };
 }

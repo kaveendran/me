@@ -266,6 +266,86 @@ export interface VisualizeResponse {
   url: string;
 }
 
+// ----- Setup (first-run onboarding) -----
+
+export type SetupStatus = "ok" | "warn" | "todo" | "fail";
+
+export type SetupGroup = "Profile" | "Accounts" | "Connectors" | "Vaults" | "Phone" | "Automation" | "Extras";
+
+/** Display order from the contract. */
+export const SETUP_GROUPS: readonly SetupGroup[] = [
+  "Profile",
+  "Accounts",
+  "Connectors",
+  "Vaults",
+  "Phone",
+  "Automation",
+  "Extras",
+];
+
+export type SetupActionKind = "run" | "confirm" | "terminal" | "link";
+
+export interface SetupAction {
+  id: string;
+  label: string;
+  kind: SetupActionKind;
+  confirm: string | null; // the side effect, shown before a `confirm` action runs
+  url: string | null; // set for `link`
+}
+
+export interface SetupItem {
+  id: string;
+  group: string; // one of SetupGroup, kept open for forward compatibility
+  label: string;
+  status: SetupStatus;
+  detail: string;
+  action: SetupAction | null;
+}
+
+// Fields can be empty before setup has detected or saved them.
+export interface SetupProfile {
+  name: string | null;
+  github_user: string | null;
+  jira_site: string | null;
+  private_vault: string | null;
+  public_vault: string | null;
+  crisis_country: string | null;
+  timezone: string | null;
+}
+
+export interface SetupVault {
+  path: string;
+  name: string;
+}
+
+export interface SetupNtfy {
+  topic: string;
+  subscribe_url: string;
+}
+
+export interface SetupState {
+  complete: boolean;
+  profile: SetupProfile;
+  vaults: SetupVault[];
+  ntfy: SetupNtfy | null;
+  items: SetupItem[];
+}
+
+export type SetupProfileBody = Partial<
+  Record<"name" | "crisis_country" | "private_vault" | "public_vault" | "github_user", string>
+>;
+
+export interface SetupProfileResponse {
+  ok: boolean;
+  profile: SetupProfile;
+}
+
+/** `ok: false` still comes back with HTTP 200; `detail` says why. */
+export interface SetupRunResponse {
+  ok: boolean;
+  detail: string;
+}
+
 export type ChatEvent =
   | { type: "text"; text: string }
   | { type: "tool"; name: string }
@@ -393,6 +473,17 @@ export const api = {
     request<MemorySearchResponse>(`/api/memory/search?q=${enc(q)}`, { signal }),
 
   memoryVisualize: () => request<VisualizeResponse>("/api/memory/visualize", { method: "POST", timeoutMs: 60_000 }),
+
+  /** `deep` also checks which claude.ai connectors are loaded (about 3 s). */
+  setup: (deep = false, signal?: AbortSignal) =>
+    request<SetupState>(deep ? "/api/setup?deep=1" : "/api/setup", { signal, timeoutMs: deep ? 45_000 : 20_000 }),
+
+  setupProfile: (body: SetupProfileBody) =>
+    request<SetupProfileResponse>("/api/setup/profile", { method: "POST", body }),
+
+  // Some actions take up to 30 s.
+  setupRun: (actionId: string) =>
+    request<SetupRunResponse>(`/api/setup/run/${enc(actionId)}`, { method: "POST", timeoutMs: 90_000 }),
 
   /** URL for the SSE chat stream. EventSource can't send headers, so the token rides in the query. */
   chatUrl: (q: string, session?: string | null): string => {

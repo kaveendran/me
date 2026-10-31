@@ -1,6 +1,6 @@
 # me · Mission Control (UI)
 
-Local dashboard for the `me` harness: Today, Approvals, Work, Agents, Wellbeing, Memory and a ⌘K command bar.
+Local dashboard for the `me` harness: Today, Approvals, Work, Agents, Wellbeing, Memory, a first-run Setup screen and a ⌘K command bar.
 Vite + React 18 + TypeScript, no UI framework. The API contract is `../docs/mission-control-api.md`.
 
 ## Build

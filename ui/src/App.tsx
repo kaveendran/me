@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useState, type ComponentType } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
 import { ApiError, api, hasToken } from "./api";
 import { CommandBar, type BarMode } from "./components/CommandBar";
 import {
   IconAgents,
   IconApprovals,
+  IconCheck,
   IconCommand,
   IconMemory,
   IconMoon,
+  IconSetup,
   IconSun,
   IconSystem,
   IconToday,
@@ -19,12 +21,13 @@ import { useHashRoute, useTheme } from "./hooks";
 import { AgentsScreen } from "./screens/Agents";
 import { ApprovalsScreen } from "./screens/Approvals";
 import { MemoryScreen } from "./screens/Memory";
+import { SetupScreen } from "./screens/Setup";
 import { TodayScreen } from "./screens/Today";
 import { WellbeingScreen } from "./screens/Wellbeing";
 import { WorkScreen } from "./screens/Work";
 import { useToast } from "./toast";
 
-const ROUTES = ["today", "approvals", "work", "agents", "wellbeing", "memory"] as const;
+const ROUTES = ["today", "approvals", "work", "agents", "wellbeing", "memory", "setup"] as const;
 type Route = (typeof ROUTES)[number];
 
 const NAV: ReadonlyArray<{ id: Route; label: string; Icon: ComponentType<{ size?: number }> }> = [
@@ -34,6 +37,7 @@ const NAV: ReadonlyArray<{ id: Route; label: string; Icon: ComponentType<{ size?
   { id: "agents", label: "Agents", Icon: IconAgents },
   { id: "wellbeing", label: "Wellbeing", Icon: IconWellbeing },
   { id: "memory", label: "Memory", Icon: IconMemory },
+  { id: "setup", label: "Setup", Icon: IconSetup },
 ];
 
 const SCREENS: Record<Route, ComponentType> = {
@@ -43,7 +47,44 @@ const SCREENS: Record<Route, ComponentType> = {
   agents: AgentsScreen,
   wellbeing: WellbeingScreen,
   memory: MemoryScreen,
+  setup: SetupScreen,
 };
+
+// First run: open Setup instead of Today at most once per browser session.
+const AUTO_SETUP_KEY = "me-setup-auto-opened";
+let autoSetupThisLoad = false;
+function claimAutoSetup(): boolean {
+  if (autoSetupThisLoad) return false;
+  autoSetupThisLoad = true;
+  try {
+    if (window.sessionStorage.getItem(AUTO_SETUP_KEY)) return false;
+    window.sessionStorage.setItem(AUTO_SETUP_KEY, "1");
+  } catch {
+    /* storage unavailable: once per page load instead */
+  }
+  return true;
+}
+
+/** Nav/tab badge: open setup items while incomplete, a check once complete. */
+function SetupBadge({ variant }: { variant: "nav" | "tab" }) {
+  const { setup, setupOpen } = useAppData();
+  const d = setup.data;
+  if (!d) return null;
+  const cls = variant === "nav" ? "nav-badge" : "tab-badge";
+  if (d.complete) {
+    return (
+      <span className={`${cls} badge-check`} role="img" aria-label="Setup complete">
+        <IconCheck size={variant === "nav" ? 13 : 11} strokeWidth={3} />
+      </span>
+    );
+  }
+  if (setupOpen <= 0) return null;
+  return (
+    <span className={cls} aria-label={`${setupOpen} setup ${setupOpen === 1 ? "step" : "steps"} to do`}>
+      {setupOpen > 99 ? "99+" : setupOpen}
+    </span>
+  );
+}
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
@@ -116,7 +157,7 @@ function ConnectionBanner() {
 export function App() {
   const [route, go] = useHashRoute(ROUTES, "today");
   const [theme, cycleTheme] = useTheme();
-  const { pendingCount, today } = useAppData();
+  const { pendingCount, today, setup } = useAppData();
   const online = !today.error && !!today.data;
   const [barOpen, setBarOpen] = useState(false);
   const [barMode, setBarMode] = useState<BarMode>("ask");
@@ -136,6 +177,15 @@ export function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  const setupChecked = useRef(false);
+  useEffect(() => {
+    const d = setup.data;
+    if (setupChecked.current || !d) return;
+    setupChecked.current = true;
+    if (d.complete || (d.profile.name ?? "").trim() || route !== "today") return;
+    if (claimAutoSetup()) go("setup");
+  }, [setup.data, route, go]);
 
   useEffect(() => {
     const label = NAV.find((n) => n.id === route)?.label ?? "Today";
@@ -194,6 +244,7 @@ export function App() {
                   {pendingCount}
                 </span>
               ) : null}
+              {id === "setup" ? <SetupBadge variant="nav" /> : null}
             </a>
           ))}
         </nav>
@@ -244,6 +295,7 @@ export function App() {
                   {pendingCount > 99 ? "99+" : pendingCount}
                 </span>
               ) : null}
+              {id === "setup" ? <SetupBadge variant="tab" /> : null}
             </span>
             <span className="tab-label">{label}</span>
           </a>
