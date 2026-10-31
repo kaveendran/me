@@ -1,0 +1,75 @@
+# me_harness configuration. `me init` copies this to me.toml (gitignored).
+
+[me]
+timezone = ""            # empty = system timezone
+crisis_country = ""      # e.g. "LK"; empty = point to findahelpline.com
+
+# Vault zones. A zone marked public must never receive private content:
+# config validation rejects routing a private kind to it, and the privacy
+# guard hook blocks writes into its private_dirs.
+[zones.private]
+vault = "~/Documents/me/vault"
+public = false
+
+[zones.public]
+vault = "~/Documents/notes/notes"
+public = true
+
+# Note paths, relative to the zone's vault. {date} = YYYY-MM-DD, {week} = YYYY-Www.
+[paths]
+daily = "Daily/{date}.md"
+diary = "Diary/{date}.md"
+inbox = "Inbox/{date}.md"
+reviews = "Reviews/{week}.md"
+wellbeing = "Wellbeing/{date}.md"
+
+# Which zone each kind of note lives in.
+[routing]
+daily = "private"
+diary = "private"
+inbox = "private"
+reviews = "private"
+wellbeing = "private"
+knowledge = "public"
+
+[privacy]
+private_dirs = ["Daily", "Diary", "Meetings", "People", "Wellbeing", "Reviews", "Inbox"]
+
+[github]
+user = "kaveendran"
+repos = []               # "owner/name" to watch; empty = everything you're involved in
+
+[jira]
+site = ""                # e.g. "yourco.atlassian.net"
+cloud_id = ""
+projects = []
+jql_mine = "assignee = currentUser() AND statusCategory != Done ORDER BY priority DESC, updated DESC"
+
+[sheets]
+worklog_id = ""
+okr_id = ""
+
+[codewiki]
+repos = []               # local repo paths whose OpenWiki is kept fresh
+
+[ntfy]
+server = "https://ntfy.sh"
+topic = ""               # long random string; `me init` generates one
+reply_topic = ""
+token_env = "ME_NTFY_TOKEN"
+
+[schedule]
+brief = "07:30"
+shutdown = "18:00"
+nightly = "22:00"
+weekly = "Fri 17:00"
+triage_every_min = 30
+prep_every_min = 15
+work_hours = "09:00-18:30"
+quiet_hours = "21:30-07:30"
+checkins = ["11:00", "15:00", "20:00"]
+
+[models]
+headless = "sonnet"
+interactive = "opus"
+max_turns = 30

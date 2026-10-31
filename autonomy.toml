@@ -1,0 +1,44 @@
+# What each agent may do on its own.
+#   auto    - do it, log it, mention it in the digest
+#   approve - queue a proposal; nothing happens until you approve it
+#   off     - never
+# Unlisted actions fall back to [defaults].level. Deny rules in
+# .claude/settings.json always win over this file.
+
+[defaults]
+level = "approve"
+daily_cap = 20           # max auto actions per agent per day
+
+[github]
+label_own_repo_issues = "auto"
+mark_notifications_read = "auto"
+diagnose_ci_failure = "auto"     # writes a diagnosis note, posts nothing
+review_comment = "approve"
+fix_branch_draft_pr = "approve"
+stale_pr_nudge = "approve"
+merge = "off"
+
+[jira]
+comment = "approve"
+transition = "approve"
+create_issue = "approve"
+worklog = "approve"
+
+[calendar]
+break_buffer = "auto"
+focus_block = "auto"
+decline = "approve"
+reschedule = "approve"
+delete = "off"
+
+[vault]
+file_capture = "auto"
+prep_note = "auto"
+promote_to_public = "approve"
+
+[sheets]
+append_row = "auto"
+change_structure = "approve"
+
+[wellbeing]
+nudge = "auto"

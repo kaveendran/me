@@ -1,0 +1,10 @@
+state/
+me.toml
+__pycache__/
+*.egg-info/
+.venv/
+ui/node_modules/
+ui/dist/
+obsidian-plugin/node_modules/
+obsidian-plugin/main.js
+.DS_Store
