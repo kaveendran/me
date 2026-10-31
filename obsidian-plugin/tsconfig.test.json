@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "outDir": ".test-build",
+    "rootDir": ".",
+    "noEmit": false,
+    "esModuleInterop": true,
+    "sourceMap": false
+  },
+  "include": ["src/parse.ts", "src/links.ts", "src/format.ts", "test/**/*.ts"]
+}

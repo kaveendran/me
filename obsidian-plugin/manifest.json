@@ -1,0 +1,9 @@
+{
+  "id": "me-harness",
+  "name": "me harness",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "A sidebar assistant backed by the local `me` CLI (which wraps Claude Code): chat about the current note, extract tasks, suggest links and tags, file summaries into today's diary, and read today's brief.",
+  "author": "kaveendran",
+  "isDesktopOnly": true
+}

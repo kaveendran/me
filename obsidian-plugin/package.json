@@ -1,0 +1,19 @@
+{
+  "name": "me-harness-obsidian",
+  "version": "0.1.0",
+  "description": "Obsidian sidebar assistant backed by the local `me` CLI.",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc --noEmit --skipLibCheck && node esbuild.config.mjs production",
+    "test": "tsc -p tsconfig.test.json && node .test-build/test/pure.test.js"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "22.15.21",
+    "esbuild": "0.25.10",
+    "obsidian": "1.8.7",
+    "typescript": "5.8.3"
+  }
+}
