@@ -39,7 +39,7 @@ SYNTH_SCHEMA = {
     "required": ["headline", "top3", "blocks", "risks"],
 }
 
-SYNTH_PROMPT = """You are kaveendran's chief of staff writing the morning brief for {weekday} {date}.
+SYNTH_PROMPT = """You are {name}'s chief of staff writing the morning brief for {weekday} {date}.
 
 Pick today's Top 3 from the data below (fewer if there isn't enough real work). Priority order:
 1. things blocking other people: non-stale review requests, failing CI on their own open PRs;
@@ -100,7 +100,7 @@ def gather(cfg: Config, day: date, now: datetime) -> dict:
 
 
 def synthesize(cfg: Config, conn, day: date, gathered: dict) -> dict:
-    prompt = SYNTH_PROMPT.format(weekday=day.strftime("%A"), date=day.isoformat(),
+    prompt = SYNTH_PROMPT.format(name=cfg.name, weekday=day.strftime("%A"), date=day.isoformat(),
                                  data=json.dumps(_compact(gathered), indent=1, default=str))
     started = db.now_iso()
     result = claude.run(prompt, cwd=cfg.home, model=cfg.model("headless"), max_turns=2, json_schema=SYNTH_SCHEMA,

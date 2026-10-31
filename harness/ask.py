@@ -39,7 +39,7 @@ def persona(cfg: Config, note: Path | None) -> str:
     zones = ", ".join(f"{z.name} vault {z.vault}{' (PUBLIC repo)' if z.public else ''}" for z in cfg.zones.values())
     private = cfg.zone_for("daily").vault
     lines = [
-        "You are kaveendran's chief of staff (me_harness). Be concise and specific; cite note paths you used.",
+        f"You are {cfg.name}'s chief of staff (me_harness). Be concise and specific; cite note paths you used.",
         f"Vaults: {zones}. The memory wiki is {private}/openwiki (start at quickstart.md when it exists).",
         f"Jira cloudId {cfg.section('jira').get('cloud_id')}. You are read-only here: never write files.",
     ]

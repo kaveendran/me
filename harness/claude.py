@@ -121,10 +121,13 @@ def run(
     timeout: float = 900,
     on_event: Callable[[dict], None] | None = None,
     require_tool_prefix: str | None = None,
+    require_mcp: str | None = None,
     **options,
 ) -> RunResult:
-    """Run claude -p. With require_tool_prefix, abort at session init (before
-    any model call, so at no cost) when no loaded tool has that prefix."""
+    """Run claude -p. With require_tool_prefix (a loaded tool) or require_mcp (an MCP
+    server or claude.ai connector by name, e.g. "claude.ai Google Sheets"), abort at
+    session init, before any model call and so at no cost, when it's unavailable.
+    Connector tools load lazily, so connectors must be checked with require_mcp."""
     claude_bin = shutil.which("claude")
     if not claude_bin:
         return RunResult(error="claude CLI not found on PATH")
@@ -149,12 +152,15 @@ def run(
             stop()
 
         def handle(event: dict) -> None:
-            if require_tool_prefix and event.get("type") == "system" and event.get("subtype") == "init":
-                if not any(str(t).startswith(require_tool_prefix) for t in event.get("tools") or []):
-                    missing_tools.set()
-                    raise _Abort
             if on_event:
                 on_event(event)
+            if event.get("type") == "system" and event.get("subtype") == "init":
+                if require_tool_prefix and not any(str(t).startswith(require_tool_prefix) for t in event.get("tools") or []):
+                    missing_tools.set()
+                    raise _Abort
+                if require_mcp and not mcp_available(event.get("mcp_servers") or [], require_mcp):
+                    missing_tools.set()
+                    raise _Abort
 
         # Drain stderr concurrently so a chatty stderr can't fill its pipe and stall stdout.
         drain = threading.Thread(target=lambda: stderr_chunks.append(proc.stderr.read()), daemon=True)
@@ -193,9 +199,30 @@ def run(
         drain.join(timeout=5)
     stderr = "".join(stderr_chunks)
     if missing_tools.is_set():
-        result.ok, result.error = False, f"no tools matching {require_tool_prefix} (connector not enabled)"
+        result.ok, result.error = False, f"{require_mcp or require_tool_prefix} unavailable (connector not enabled)"
     elif timed_out.is_set():
         result.ok, result.error = False, f"timed out after {timeout:.0f}s"
     elif proc.returncode and not result.ok and stderr.strip():
         result.error = f"{result.error}: {stderr.strip()[-500:]}"
     return result
+
+
+UNAVAILABLE = frozenset({"needs-auth", "failed", "disabled"})
+
+
+def mcp_available(servers: list[dict], name: str) -> bool:
+    """claude.ai connectors report "pending" at init while they connect lazily; that counts."""
+    return any(s.get("name") == name and s.get("status") not in UNAVAILABLE for s in servers)
+
+
+def mcp_servers(cwd: Path, settings: Path | None = None) -> dict[str, str]:
+    """{server name: status} for a headless session, claude.ai connectors included.
+    Stops at session init, before any model call, so it costs nothing."""
+    found: dict[str, str] = {}
+
+    def grab(event: dict) -> None:
+        if event.get("type") == "system" and event.get("subtype") == "init":
+            found.update({s.get("name", ""): s.get("status", "") for s in event.get("mcp_servers") or []})
+
+    run("ok", cwd=cwd, settings=settings, persist=False, timeout=60, on_event=grab, require_tool_prefix="\x00never")
+    return found

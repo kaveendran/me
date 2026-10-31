@@ -16,6 +16,7 @@ from .config import Config, set_value
 from .day import WORKLOG_HEADERS, worklog_row
 
 SHEETS_PREFIX = "mcp__claude_ai_Google_Sheets"
+SHEETS_CONNECTOR = "claude.ai Google Sheets"
 OKR_HEADERS = ["Objective", "Key result", "Start", "Target", "Current", "Progress %", "Confidence (1-10)", "Updated", "Notes"]
 
 INIT_SCHEMA = {
@@ -87,7 +88,7 @@ def sync(cfg: Config, conn) -> dict:
     )
     started = db.now_iso()
     result = claude.run(prompt, cwd=cfg.home, model=cfg.model("headless"), max_turns=10,
-                        allowed_tools=(SHEETS_PREFIX,), require_tool_prefix=SHEETS_PREFIX, json_schema=SYNC_SCHEMA,
+                        allowed_tools=(SHEETS_PREFIX,), require_mcp=SHEETS_CONNECTOR, json_schema=SYNC_SCHEMA,
                         settings=cfg.headless_settings, persist=False, timeout=300)
     db.record_run(conn, agent="sheets-sync", model=cfg.model("headless"), started=started, result=result)
     if not result.ok:

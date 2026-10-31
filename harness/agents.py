@@ -91,7 +91,7 @@ GH_SCHEMA = {
     "required": ["ci", "reviews", "noise_thread_ids", "labels"],
 }
 
-GH_PROMPT = """You triage GitHub for kaveendran. Judge only from the data below.
+GH_PROMPT = """You triage GitHub for {name}. Judge only from the data below.
 
 - ci: for each failing PR, read the failed log and give a one-line summary, the most likely cause, and a concrete
   suggested fix. Be honest about confidence.
@@ -134,7 +134,7 @@ def triage_github(cfg: Config, conn, policy: dict) -> dict:
     if not any(data[k] for k in ("failing_prs", "review_requests", "notifications", "unlabeled_issues")):
         return {"agent": "github", "proposals": 0, "detail": "nothing new"}
 
-    out = judge(cfg, conn, "triage-github", GH_PROMPT.format(data=json.dumps(data, indent=1)), GH_SCHEMA)
+    out = judge(cfg, conn, "triage-github", GH_PROMPT.format(name=cfg.name, data=json.dumps(data, indent=1)), GH_SCHEMA)
     made = []
     for d in out.get("ci", []):
         md = (f"- **CI failing** [{d['pr_url'].split('github.com/')[-1]}]({d['pr_url']}): {d['summary']}. "

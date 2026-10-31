@@ -1,6 +1,7 @@
 # me_harness configuration. `me init` copies this to me.toml (gitignored).
 
 [me]
+name = ""                 # what your chief of staff calls you (`me setup` asks)
 timezone = ""            # empty = system timezone
 crisis_country = ""      # e.g. "LK"; empty = point to findahelpline.com
 
@@ -12,7 +13,7 @@ vault = "~/Documents/me/vault"
 public = false
 
 [zones.public]
-vault = "~/Documents/notes/notes"
+vault = ""                # optional: an existing notes vault (`me setup` lists yours)
 public = true
 
 # Note paths, relative to the zone's vault. {date} = YYYY-MM-DD, {week} = YYYY-Www.
@@ -36,7 +37,7 @@ knowledge = "public"
 private_dirs = ["Daily", "Diary", "Meetings", "People", "Wellbeing", "Reviews", "Inbox"]
 
 [github]
-user = "kaveendran"
+user = ""                # GitHub login; `me setup` detects it from gh
 repos = []               # "owner/name" to watch; empty = everything you're involved in
 
 [jira]

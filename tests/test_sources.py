@@ -130,3 +130,14 @@ class ConfigEditTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class McpAvailabilityTest(unittest.TestCase):
+    def test_pending_counts_needs_auth_does_not(self):
+        servers = [{"name": "claude.ai Google Calendar", "status": "pending"},
+                   {"name": "claude.ai Notion", "status": "needs-auth"},
+                   {"name": "openwiki", "status": "connected"}]
+        self.assertTrue(claude.mcp_available(servers, "claude.ai Google Calendar"))
+        self.assertTrue(claude.mcp_available(servers, "openwiki"))
+        self.assertFalse(claude.mcp_available(servers, "claude.ai Notion"))
+        self.assertFalse(claude.mcp_available(servers, "claude.ai Google Sheets"))

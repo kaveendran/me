@@ -142,3 +142,46 @@ Server-sent events. Each `data:` line is JSON:
 - `{"type": "tool", "name": "Read"}`: show tool activity.
 - `{"type": "done", "session": "uuid", "cost": 0.012}`: pass `session` back on the next question to continue the conversation.
 - `{"type": "error", "error": "…"}`
+
+## Setup (first-run onboarding)
+
+Both the `me setup` terminal UI and the web Setup screen are driven by the same engine (`harness/setup.py`).
+
+### `GET /api/setup[?deep=1]`
+
+`deep=1` also checks which claude.ai connectors are loaded. That takes about 3 s and costs nothing.
+
+```json
+{
+  "complete": false,
+  "profile": {"name": "Ada", "github_user": "ada", "jira_site": "acme.atlassian.net",
+              "private_vault": "/Users/ada/Documents/me/vault", "public_vault": "/Users/ada/notes",
+              "crisis_country": "LK", "timezone": "Asia/Colombo"},
+  "vaults": [{"path": "/Users/ada/notes", "name": "notes"}],
+  "ntfy": {"topic": "me-abc…", "subscribe_url": "https://ntfy.sh/me-abc…"},
+  "items": [{
+    "id": "github", "group": "Accounts", "label": "GitHub", "status": "ok",
+    "detail": "signed in as ada",
+    "action": {"id": "github_login", "label": "Sign in", "kind": "terminal", "confirm": null, "url": null}
+  }]
+}
+```
+
+- `status` is `ok | warn | todo | fail`.
+- `group` is one of `Profile | Accounts | Connectors | Vaults | Phone | Automation | Extras`, in that display order.
+- `action` is `null` when there's nothing to do. Its `kind` is one of:
+  - `run`: POST it. Show a spinner, because some actions take up to 30 s.
+  - `confirm`: show `confirm` (a sentence describing the side effect) and POST only when the user agrees.
+  - `terminal`: POST it, and the server opens macOS Terminal running the command. Then poll `GET /api/setup` every 5 s for up to 2 minutes.
+  - `link`: just open `url` in a new tab.
+- `complete` is true when no item has `todo` or `fail`.
+
+### `POST /api/setup/profile`
+
+Body: any of `{"name", "crisis_country", "private_vault", "public_vault", "github_user"}`.
+
+Returns `{"ok": true, "profile": {…}}`. Vault paths must be absolute or start with `~`.
+
+### `POST /api/setup/run/{action_id}`
+
+Returns `{"ok": true, "detail": "…"}`, or `{"ok": false, "detail": "…"}` with status 200. HTTP 400 means an unknown action.

@@ -27,7 +27,7 @@ REVIEW_SCHEMA = {
     "required": ["summary", "wins", "slips", "kr_notes", "wellbeing", "drains", "energizers", "experiment"],
 }
 
-PROMPT = """Write kaveendran's weekly review for the week starting {monday}. Be specific and kind, never
+PROMPT = """Write {name}'s weekly review for the week starting {monday}. Be specific and kind, never
 grading. Use only the data.
 
 - summary: 3-4 sentences on what the week was actually about.
@@ -69,7 +69,7 @@ def run(cfg: Config, conn, day: date | None = None) -> dict:
     okr = scouts.okr(cfg)
     data = {"days": daily, "merged_prs": merged, "jira_done": [f"{i['key']} {i['summary']}" for i in jira_done.get("issues", [])],
             "key_results": okr.get("rows", [])}
-    out = judge(cfg, conn, "review", PROMPT.format(monday=monday, data=json.dumps(data, indent=1, default=str)), REVIEW_SCHEMA)
+    out = judge(cfg, conn, "review", PROMPT.format(name=cfg.name, monday=monday, data=json.dumps(data, indent=1, default=str)), REVIEW_SCHEMA)
 
     def bullets(items):
         return "\n".join(f"- {i}" for i in items) or "_none_"

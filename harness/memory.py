@@ -15,19 +15,19 @@ from pathlib import Path
 from . import claude, db
 from .config import Config
 
-INSTRUCTIONS = """# OpenWiki brief: kaveendran's personal memory
+INSTRUCTIONS = """# OpenWiki brief: {name}'s personal memory
 
 This repository is a private Obsidian vault, not a codebase. Treat its notes as the source of truth
 and build a **memory wiki** that a chief-of-staff agent reads before answering questions like
-"what did I promise Ravi?" or "what was decided about the auth migration?".
+"what did I promise <a colleague>?" or "what was decided about the auth migration?".
 
 Organise pages around durable things, not folders:
-- `people/<name>.md`: who they are to kaveendran, recent interactions, open commitments both ways.
+- `people/<name>.md`: who they are to {name}, recent interactions, open commitments both ways.
 - `projects/<name>.md`: goal, status, decisions, open questions, related Jira keys and repos.
 - `commitments.md`: promises made and received, with dates and status.
 - `decisions.md`: decisions with date, context and the note they were made in.
 - `patterns.md`: recurring themes in work and energy (what drains, what energises), stated plainly.
-- `preferences.md`: how kaveendran likes to work.
+- `preferences.md`: how {name} likes to work.
 
 Rules:
 - Create a page only when the notes give real evidence for it. No placeholder pages.
@@ -53,7 +53,7 @@ def ensure_setup(cfg: Config) -> None:
     brief = root / "openwiki" / "INSTRUCTIONS.md"
     if not brief.exists():
         brief.parent.mkdir(parents=True, exist_ok=True)
-        brief.write_text(INSTRUCTIONS, encoding="utf-8")
+        brief.write_text(INSTRUCTIONS.replace("{name}", cfg.name), encoding="utf-8")
     ignore = root / ".openwikiignore"
     if not ignore.exists():
         rules = cfg.section("memory").get("ignore", DEFAULT_IGNORE)

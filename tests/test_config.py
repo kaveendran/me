@@ -8,14 +8,23 @@ from .helpers import REPO, example_raw
 
 
 class ConfigTest(unittest.TestCase):
-    def test_example_parses(self):
+    def test_example_parses_without_public_vault(self):
         cfg = parse(example_raw(), REPO)
-        self.assertTrue(cfg.zones["public"].public)
+        self.assertNotIn("public", cfg.zones)
+        self.assertNotIn("knowledge", cfg.routing)
         self.assertFalse(cfg.zone_for("diary").public)
         self.assertIn("Diary", cfg.private_dirs)
 
+    def test_public_vault_when_set(self):
+        raw = example_raw()
+        raw["zones"]["public"]["vault"] = "~/notes"
+        cfg = parse(raw, REPO)
+        self.assertTrue(cfg.zones["public"].public)
+        self.assertEqual(cfg.routing["knowledge"], "public")
+
     def test_private_kind_cannot_route_to_public_zone(self):
         raw = example_raw()
+        raw["zones"]["public"]["vault"] = "~/notes"
         raw["routing"]["diary"] = "public"
         with self.assertRaisesRegex(ConfigError, "diary must route to a private zone"):
             parse(raw, REPO)

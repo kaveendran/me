@@ -76,6 +76,11 @@ class Config:
         # whole permission surface, and "ask" rules would silently deny it.
         return self.home / "config" / "claude-headless.json"
 
+    @property
+    def name(self) -> str:
+        """What the chief of staff calls the user: [me] name, else the GitHub login."""
+        return self.section("me").get("name") or self.section("github").get("user") or "the user"
+
     def model(self, role: str) -> str:
         defaults = {"headless": "sonnet", "scout": "haiku", "interactive": "opus"}
         return self.section("models").get(role, defaults[role])
@@ -103,14 +108,21 @@ def parse(raw: dict, home: Path = HOME) -> Config:
         raise ConfigError("[zones] must define at least one zone")
     zones = {}
     for name, z in zones_raw.items():
-        if not isinstance(z, dict) or not z.get("vault"):
-            raise ConfigError(f"[zones.{name}] needs a vault path")
+        if not isinstance(z, dict):
+            raise ConfigError(f"[zones.{name}] must be a table")
+        if not z.get("vault"):
+            continue  # an empty vault path means "not set up yet" (e.g. no public notes vault)
         zones[name] = Zone(name, Path(z["vault"]).expanduser(), bool(z.get("public", False)))
+    if not any(not z.public for z in zones.values()):
+        raise ConfigError("[zones] needs at least one private zone with a vault path")
 
-    routing = dict(raw.get("routing") or {})
-    for kind, zone in routing.items():
+    routing = {}
+    for kind, zone in (raw.get("routing") or {}).items():
         if zone not in zones:
+            if zone in zones_raw and kind not in PRIVATE_KINDS:
+                continue  # routed to a zone that isn't set up: leave that kind unrouted
             raise ConfigError(f"[routing] {kind} -> unknown zone {zone!r}")
+        routing[kind] = zone
         if kind in PRIVATE_KINDS and zones[zone].public:
             raise ConfigError(f"[routing] {kind} must route to a private zone, not {zone!r}")
 
