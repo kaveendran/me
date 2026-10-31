@@ -61,7 +61,7 @@ def cmd_ritual(args) -> int:
     if not claude_bin:
         print("claude CLI not found on PATH", file=sys.stderr)
         return 1
-    argv = [claude_bin]
+    argv = [claude_bin, "--settings", str(cfg.claude_settings)]
     if not plugin_installed():
         argv += ["--plugin-dir", str(cfg.plugin_dir)]
     argv.append(RITUALS[args.command])

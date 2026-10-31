@@ -63,6 +63,12 @@ class Config:
     def plugin_dir(self) -> Path:
         return self.home / "plugin"
 
+    @property
+    def claude_settings(self) -> Path:
+        # Passed as --settings to every session `me` launches: harness
+        # permissions, and memory plugins off so diary text stays local.
+        return self.home / "config" / "claude-settings.json"
+
 
 def load(path: Path | None = None, home: Path = HOME) -> Config:
     path = path or home / "me.toml"

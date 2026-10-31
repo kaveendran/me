@@ -34,6 +34,7 @@ def build_command(
     resume: str | None = None,
     append_system_prompt: str | None = None,
     plugin_dir: Path | None = None,
+    settings: Path | None = None,
     claude_bin: str = "claude",
 ) -> list[str]:
     cmd = [claude_bin, "-p", prompt, "--output-format", "stream-json", "--verbose"]
@@ -53,6 +54,8 @@ def build_command(
         cmd += ["--append-system-prompt", append_system_prompt]
     if plugin_dir:
         cmd += ["--plugin-dir", str(plugin_dir)]
+    if settings:
+        cmd += ["--settings", str(settings)]
     return cmd
 
 

@@ -1,6 +1,11 @@
 {
   "name": "me-local",
-  "owner": { "name": "kaveendran" },
+  "owner": {
+    "name": "kaveendran"
+  },
+  "metadata": {
+    "description": "Local marketplace for the me_harness personal chief-of-staff plugin."
+  },
   "plugins": [
     {
       "name": "me",

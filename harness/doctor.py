@@ -120,7 +120,7 @@ def checks(live: bool = False):
             "Connectivity check. Call list_calendars, getAccessibleAtlassianResources, and Google Drive "
             "search_files for one spreadsheet. Call nothing else. Report in the schema.",
             cwd=cfg.home, model=cfg.section("models").get("headless", "sonnet"), max_turns=8,
-            allowed_tools=LIVE_TOOLS, json_schema=LIVE_SCHEMA, timeout=180,
+            allowed_tools=LIVE_TOOLS, json_schema=LIVE_SCHEMA, settings=cfg.claude_settings, timeout=180,
         )
         s = r.structured or {}
         for key, name in (("calendar_ok", "calendar"), ("atlassian_ok", "jira"), ("drive_ok", "drive/sheets")):
