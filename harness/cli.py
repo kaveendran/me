@@ -11,11 +11,13 @@ from contextlib import closing
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from . import bootstrap, db, doctor, guard, notify, schedule, sheets, vault
+from . import agents, bootstrap, db, doctor, guard, memory, notify, proposals, schedule, sheets, vault, wellbeing
+from . import ask as askmod
 from . import brief as briefmod
 from . import day as daymod
+from . import review as reviewmod
 from . import today as todaymod
-from .config import HOME, ConfigError, load
+from .config import HOME, ConfigError, load, load_autonomy
 
 RITUALS = {"diary": "/me:diary", "plan": "/me:plan", "shutdown": "/me:shutdown"}
 
@@ -113,7 +115,10 @@ def cmd_brief(args) -> int:
     for err in t["errors"]:
         print(f"  ! {err}", file=sys.stderr)
     if args.scheduled:
-        notify.desktop("Brief ready", t["headline"] or summary, summary)
+        with closing(db.connect(cfg.db_path)) as conn:
+            notify.send(cfg, conn, "brief", "Brief ready", f"{t['headline']}\n{summary}"[:240], tags=["sunrise"],
+                        click=agents.obsidian_url(cfg, vault.note_path(cfg, "daily", day)), once_per_day=True,
+                        also_desktop=True)
     return 0
 
 
@@ -203,13 +208,228 @@ def cmd_nudge(args) -> int:
             print(f"skipped: {reason}")
             return 0
         _, actual = db.get_worklog(conn, day.isoformat())
-    if actual.get("at"):
-        print("shutdown already done today")
-        return 0
-    done, total = daymod.plan_progress(cfg, day)
-    progress = f"Top 3: {done}/{total} done. " if total else ""
-    notify.desktop("Time to wrap up", f"{progress}Run `me shutdown` to close the day.")
-    print("nudged")
+        if actual.get("at"):
+            print("shutdown already done today")
+            return 0
+        done, total = daymod.plan_progress(cfg, day)
+        progress = f"Top 3: {done}/{total} done. " if total else ""
+        outcome = notify.send(cfg, conn, "shutdown", "Time to wrap up", f"{progress}Run `me shutdown` to close the day.",
+                              tags=["checkered_flag"], once_per_day=True, also_desktop=True)
+    print(f"nudge: {outcome}")
+    return 0
+
+
+def in_work_hours(cfg, now: datetime) -> bool:
+    start, end = cfg.section("schedule").get("work_hours", "09:00-18:30").split("-")
+    return start <= now.strftime("%H:%M") < end
+
+
+def push_new_approvals(cfg, conn) -> None:
+    pending = proposals.listing(conn, "pending")
+    told = set(json.loads(db.get_cursor(conn, "approvals.notified") or "[]"))
+    new = [p for p in pending if p["id"] not in told]
+    if not new:
+        return
+    if len(pending) == 1:
+        p = pending[0]
+        actions = [notify.button(cfg, "Approve", "approve", p["id"]), notify.button(cfg, "Reject", "reject", p["id"])]
+    else:
+        safe = sum(1 for p in pending if p["safe"])
+        actions = [notify.button(cfg, f"Approve {safe} safe", "approve_safe", 1)] if safe else []
+    title = f"{len(pending)} approval{'s' if len(pending) > 1 else ''} waiting"
+    notify.send(cfg, conn, "approvals", title, new[0]["preview"].splitlines()[0][:180], tags=["inbox_tray"], actions=actions)
+    db.set_cursor(conn, "approvals.notified", json.dumps(sorted(told | {p["id"] for p in pending})))
+
+
+def cmd_triage(args) -> int:
+    cfg = load()
+    now = datetime.now()
+    policy = load_autonomy()
+    with closing(db.connect(cfg.db_path)) as conn:
+        if args.scheduled and ((reason := skip_scheduled(cfg, conn, now.date())) or not in_work_hours(cfg, now)):
+            print(f"skipped: {reason or 'outside work hours'}")
+            return 0
+        which = ["github", "jira", "calendar"] if args.which == "all" else [args.which]
+        fns = {"github": agents.triage_github, "jira": agents.triage_jira, "calendar": agents.triage_calendar}
+        for name in which:
+            try:
+                print(json.dumps(fns[name](cfg, conn, policy)))
+            except Exception as e:  # noqa: BLE001 - one agent failing must not stop the others
+                print(f"{name}: failed: {e}", file=sys.stderr)
+        push_new_approvals(cfg, conn)
+    return 0
+
+
+def cmd_tick(args) -> int:
+    """Every 15 min: meeting prep, break nudges and check-in prompts."""
+    cfg = load()
+    now = datetime.now()
+    with closing(db.connect(cfg.db_path)) as conn:
+        if args.scheduled and db.is_paused(conn):
+            print("skipped: paused")
+            return 0
+        work = cfg.is_workday(now.date()) and in_work_hours(cfg, now)
+        if work:
+            print(json.dumps(agents.prep_meetings(cfg, conn, load_autonomy(), now)))
+            if minutes := wellbeing.break_due(conn, now):
+                notify.send(cfg, conn, "break", "Time for a break?",
+                            f"You've been at it {minutes // 60}h{minutes % 60:02d} straight. Five minutes away from the screen helps.",
+                            priority=2, tags=["coffee"])
+                db.set_cursor(conn, "nudge.break", now.isoformat())
+        if at := wellbeing.checkin_due(cfg, conn, now):
+            outcome = notify.send(cfg, conn, "checkin", "How are you doing?", "Tap your mood (1 = rough, 5 = great).",
+                                  priority=2, tags=["seedling"],
+                                  actions=[notify.button(cfg, str(n), "mood", n) for n in (2, 3, 4)])
+            db.set_cursor(conn, f"checkin.{now.date()}.{at}", outcome)
+            print(f"check-in prompt: {outcome}")
+    return 0
+
+
+def cmd_prep(args) -> int:
+    cfg = load()
+    with closing(db.connect(cfg.db_path)) as conn:
+        print(json.dumps(agents.prep_meetings(cfg, conn, load_autonomy())))
+    return 0
+
+
+def cmd_inbox(args) -> int:
+    cfg = load()
+    with closing(db.connect(cfg.db_path)) as conn:
+        print(json.dumps(agents.inbox_librarian(cfg, conn, load_autonomy())))
+    return 0
+
+
+def cmd_nightly(args) -> int:
+    cfg = load()
+    with closing(db.connect(cfg.db_path)) as conn:
+        if args.scheduled and db.is_paused(conn):
+            print("skipped: paused")
+            return 0
+        steps = [("inbox", lambda: agents.inbox_librarian(cfg, conn, load_autonomy())),
+                 ("wellbeing", lambda: wellbeing.write_signals(cfg, conn, date.today())["load"]),
+                 ("memory", lambda: memory.update(cfg, conn)),
+                 ("codewiki", lambda: memory.update_code_wikis(cfg, conn))]
+        for name, fn in steps:
+            try:
+                print(f"{name}: {json.dumps(fn(), default=str)}")
+            except Exception as e:  # noqa: BLE001
+                print(f"{name}: failed: {e}", file=sys.stderr)
+    return 0
+
+
+def cmd_review(args) -> int:
+    cfg = load()
+    with closing(db.connect(cfg.db_path)) as conn:
+        if args.scheduled and db.is_paused(conn):
+            print("skipped: paused")
+            return 0
+        out = reviewmod.run(cfg, conn)
+    print(f"review written to {vault.note_path(cfg, 'reviews', date.today())}\nexperiment: {out['experiment']}")
+    return 0
+
+
+def cmd_memory(args) -> int:
+    cfg = load()
+    with closing(db.connect(cfg.db_path)) as conn:
+        if args.memory_cmd == "update":
+            print(memory.update(cfg, conn))
+        elif args.memory_cmd == "setup":
+            memory.ensure_setup(cfg)
+            print(f"wrote {memory.vault_root(cfg) / 'openwiki' / 'INSTRUCTIONS.md'} and .openwikiignore")
+        else:
+            for r in memory.search(cfg, " ".join(args.query))["results"]:
+                print(f"{r['path']}: {r['snippet']}")
+    return 0
+
+
+def cmd_wiki(args) -> int:
+    cfg = load()
+    with closing(db.connect(cfg.db_path)) as conn:
+        for line in memory.update_code_wikis(cfg, conn) or ["all code wikis current"]:
+            print(line)
+    return 0
+
+
+def cmd_ask(args) -> int:
+    cfg = load()
+    note = Path(args.note).expanduser() if args.note else None
+    if args.json:
+        try:
+            print(json.dumps(askmod.structured(cfg, args.mode, note)))
+            return 0
+        except Exception as e:  # noqa: BLE001 - the plugin reads {"error"} from stdout
+            print(json.dumps({"error": str(e)}))
+            return 1
+    question = " ".join(args.question).strip()
+    if not question:
+        raise ValueError("ask needs a question")
+
+    def emit(event: dict) -> None:
+        if args.stream:
+            print(json.dumps(event), flush=True)
+
+    r = askmod.stream(cfg, question, note, args.session, emit)
+    if not args.stream:
+        print(r.text)
+    if not r.ok:
+        print(r.error, file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_checkin(args) -> int:
+    cfg = load()
+    with closing(db.connect(cfg.db_path)) as conn:
+        msg = wellbeing.record_checkin(cfg, conn, args.mood, args.energy, args.stress, args.note)
+        load_ = wellbeing.load_score(wellbeing.signals(cfg, conn, date.today(),
+                                                       meeting_min=(todaymod.load(cfg) or {}).get("meeting_min")))
+    print(msg or f"checked in · today's load {load_['score']}/100 ({load_['band']})")
+    return 0
+
+
+def cmd_wins(args) -> int:
+    cfg = load()
+    with closing(db.connect(cfg.db_path)) as conn:
+        for w in wellbeing.wins(conn, args.limit):
+            print(f"{w['date']}  {w['text']}")
+    return 0
+
+
+def cmd_proposals(args) -> int:
+    cfg = load()
+    with closing(db.connect(cfg.db_path)) as conn:
+        if args.proposals_cmd == "list":
+            items = proposals.listing(conn, None if args.all else "pending")
+            for p in items:
+                print(f"{p['id']}  [{p['status']}{' · safe' if p['safe'] else ''}] {p['agent']}/{p['action']}: "
+                      f"{p['preview'].splitlines()[0][:100]}")
+            if not items:
+                print("no pending proposals")
+        elif args.proposals_cmd == "show":
+            print(json.dumps(proposals.get(conn, args.id), indent=1))
+        elif args.proposals_cmd == "approve":
+            status, result = proposals.approve(cfg, conn, args.id)
+            print(f"{status}: {result}")
+        elif args.proposals_cmd == "reject":
+            print("rejected" if proposals.reject(conn, args.id) else "not pending")
+        else:
+            for pid, status in proposals.approve_safe(cfg, conn).items():
+                print(f"{pid}: {status}")
+    return 0
+
+
+def cmd_serve(args) -> int:
+    from . import server
+    server.serve(load())
+    return 0
+
+
+def cmd_notify(args) -> int:
+    cfg = load()
+    with closing(db.connect(cfg.db_path)) as conn:
+        outcome = notify.send(cfg, conn, "test", "me_harness test", "Notifications work. Buttons below are signed.",
+                              priority=4, tags=["white_check_mark"], actions=[notify.button(cfg, "Mood 4", "mood", 4)])
+    print(f"{outcome}; subscribe to topic {cfg.section('ntfy').get('topic')} in the ntfy app")
     return 0
 
 
@@ -359,6 +579,62 @@ def build_parser() -> argparse.ArgumentParser:
     h = sub.add_parser("hook", help="Claude Code hook entry points")
     h.add_argument("name", choices=["privacy-guard", "session-start"])
     h.set_defaults(func=cmd_hook)
+
+    tr = sub.add_parser("triage", help="run the GitHub / Jira / Calendar agents")
+    tr.add_argument("which", nargs="?", default="all", choices=["all", "github", "jira", "calendar"])
+    tr.add_argument("--scheduled", action="store_true")
+    tr.set_defaults(func=cmd_triage)
+
+    tk = sub.add_parser("tick", help="every-15-min job: meeting prep, break nudges, check-in prompts")
+    tk.add_argument("--scheduled", action="store_true")
+    tk.set_defaults(func=cmd_tick)
+
+    sub.add_parser("prep", help="write prep notes for meetings starting in 5-25 min").set_defaults(func=cmd_prep)
+    sub.add_parser("inbox", help="summarise, tag and link new web clips").set_defaults(func=cmd_inbox)
+
+    ni = sub.add_parser("nightly", help="nightly job: inbox, wellbeing signals, memory, code wikis")
+    ni.add_argument("--scheduled", action="store_true")
+    ni.set_defaults(func=cmd_nightly)
+
+    rv = sub.add_parser("review", help="write this week's review")
+    rv.add_argument("--scheduled", action="store_true")
+    rv.set_defaults(func=cmd_review)
+
+    mm = sub.add_parser("memory", help="OpenWiki memory over the private vault")
+    mm.add_argument("memory_cmd", choices=["update", "setup", "search"])
+    mm.add_argument("query", nargs="*")
+    mm.set_defaults(func=cmd_memory)
+
+    sub.add_parser("wiki", help="refresh OpenWiki for repos in [codewiki]").set_defaults(func=cmd_wiki)
+
+    ak = sub.add_parser("ask", help="ask the chief of staff (read-only)")
+    ak.add_argument("question", nargs="*")
+    ak.add_argument("--stream", action="store_true", help="print stream-json events")
+    ak.add_argument("--json", action="store_true", help="structured one-shot output (needs --mode and --note)")
+    ak.add_argument("--mode", choices=list(askmod.MODES), default="summary")
+    ak.add_argument("--note")
+    ak.add_argument("--session")
+    ak.set_defaults(func=cmd_ask)
+
+    ci = sub.add_parser("checkin", help="log mood / energy / stress (1-5)")
+    ci.add_argument("mood", nargs="?", type=int)
+    ci.add_argument("--energy", type=int)
+    ci.add_argument("--stress", type=int)
+    ci.add_argument("--note")
+    ci.set_defaults(func=cmd_checkin)
+
+    w = sub.add_parser("wins", help="the wins jar")
+    w.add_argument("--limit", type=int, default=20)
+    w.set_defaults(func=cmd_wins)
+
+    pr = sub.add_parser("proposals", help="the approval queue")
+    pr.add_argument("proposals_cmd", nargs="?", default="list", choices=["list", "show", "approve", "reject", "approve-safe"])
+    pr.add_argument("id", nargs="?")
+    pr.add_argument("--all", action="store_true")
+    pr.set_defaults(func=cmd_proposals)
+
+    sub.add_parser("serve", help="Mission Control server + phone reply listener").set_defaults(func=cmd_serve)
+    sub.add_parser("notify-test", help="send a test push to your phone").set_defaults(func=cmd_notify)
     return p
 
 

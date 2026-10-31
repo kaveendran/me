@@ -40,6 +40,7 @@ def build_command(
     settings: Path | None = None,
     persist: bool = True,
     mcp: bool = True,
+    add_dirs: Sequence[Path] = (),
     claude_bin: str = "claude",
 ) -> list[str]:
     cmd = [claude_bin, "-p", prompt, "--output-format", "stream-json", "--verbose"]
@@ -63,6 +64,8 @@ def build_command(
         cmd += ["--settings", str(settings)]
     if not persist:
         cmd.append("--no-session-persistence")
+    for d in add_dirs:
+        cmd += ["--add-dir", str(d)]
     if not mcp:
         # No MCP servers or connectors: their tool schemas are most of the prompt.
         cmd.append("--strict-mcp-config")

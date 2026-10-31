@@ -60,6 +60,7 @@ server = "https://ntfy.sh"
 topic = ""               # long random string; `me init` generates one
 reply_topic = ""
 token_env = "ME_NTFY_TOKEN"
+daily_cap = 12            # max non-urgent pushes per day
 
 [schedule]
 brief = "07:30"
@@ -78,3 +79,10 @@ headless = "sonnet"
 scout = "haiku"          # data-fetching scouts (connector transport only)
 interactive = "opus"
 max_turns = 30
+
+[serve]
+port = 4777
+allowed_hosts = []        # extra Host headers, e.g. "mac.tailnet-name.ts.net" for Tailscale
+
+[memory]
+ignore = [".obsidian/", ".trash/", "_templates/", "Inbox/clips/", "Wellbeing/"]
