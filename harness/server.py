@@ -20,10 +20,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import ask, db, memory, notify, proposals, vault, wellbeing
+from . import ask, db, memory, notify, proposals, setup, vault, wellbeing
 from . import day as daymod
 from . import today as todaymod
-from .config import Config
+from .config import Config, load
 
 AGENTS = {
     "brief": ("Morning brief", "07:30 on workdays", ["brief"], ("brief-synth", "scout-calendar", "scout-jira", "scout-okr")),
@@ -143,6 +143,13 @@ def handle_reply(cfg: Config, action: str, value) -> None:
 
 
 def make_handler(cfg: Config, secret: str, hosts: set[str], dist: Path):
+    def current() -> Config:
+        # Setup rewrites me.toml; reload it so a saved profile takes effect at once.
+        try:
+            return load(cfg.home / "me.toml", cfg.home)
+        except Exception:  # noqa: BLE001 - fall back to the config we started with
+            return cfg
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "me/1"
 
@@ -200,6 +207,7 @@ def make_handler(cfg: Config, secret: str, hosts: set[str], dist: Path):
                         "/api/agents": lambda: agents_view(cfg, conn),
                         "/api/wellbeing": lambda: wellbeing_view(cfg, conn),
                         "/api/memory/search": lambda: memory.search(cfg, (q.get("q") or [""])[0]),
+                        "/api/setup": lambda: setup.snapshot(current(), conn, deep=(q.get("deep") or ["0"])[0] == "1"),
                     }
                     if url.path not in routes:
                         return self._json({"error": "not found"}, 404)
@@ -238,6 +246,12 @@ def make_handler(cfg: Config, secret: str, hosts: set[str], dist: Path):
                         return self._json({"ok": True, "path": str(path)})
                     if parts == ["api", "memory", "visualize"]:
                         return self._json({"url": visualize(cfg)})
+                    if parts == ["api", "setup", "profile"]:
+                        return self._json({"ok": True, "profile": setup.profile(setup.save_profile(current(), body))})
+                    if parts[:3] == ["api", "setup", "run"] and len(parts) == 4:
+                        if parts[3] not in setup.ACTIONS and parts[3] not in setup.TERMINAL_COMMANDS:
+                            return self._json({"error": f"unknown action {parts[3]}"}, 400)
+                        return self._json(setup.run_action(current(), conn, parts[3]))
                 self._json({"error": "not found"}, 404)
             except ValueError as e:
                 self._json({"error": str(e)}, 400)
