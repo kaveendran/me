@@ -2,31 +2,33 @@
 
 A personal chief-of-staff that runs on top of Claude Code. It connects GitHub, Calendar, Sheets, Jira, OpenWiki and your Obsidian vaults. It plans the day with you, triages work on its own, guards your focus and wellbeing, remembers what matters, and reaches you on your phone. See `CLAUDE.md` for how it behaves.
 
-## Install
+## Setting it up (new person, new Mac)
+
+There are no harness accounts. me_harness reuses the logins already on the Mac: Claude (your claude.ai account and its connectors), GitHub (`gh`), and an ntfy topic for your phone. Each person runs their own copy; never share one, because the diary lives in it.
+
+**Prerequisites:** macOS, Python 3.11+, [uv](https://docs.astral.sh/uv/), [Claude Code](https://claude.com/claude-code), the GitHub CLI `gh`, Node 20+ (for the two UIs) and Obsidian.
 
 ```sh
-cd ~/Documents/me/me_harness
+git clone <this repo> ~/Documents/me/me_harness && cd ~/Documents/me/me_harness
 uv tool install --editable .            # puts `me` on PATH
-me init                                 # me.toml, state db, private vault at ~/Documents/me/vault
-me sheets init                          # Work Log and Goals & OKRs sheets in your Drive
-(cd ui && npm install && npm run build) # Mission Control UI
-me schedule install                     # all launchd jobs (see below)
-me doctor                               # add --live to test the connectors headless
+(cd ui && npm install && npm run build) # Mission Control web UI
+(cd obsidian-plugin && npm install && npm run build)
+me setup                                # guided setup in the terminal UI
 ```
 
-## One-time steps for you
+`me setup` creates `me.toml`, detects your name and GitHub login, finds your Obsidian vaults, and shows a checklist. Select a row and press **Enter** to fix it:
 
-1. **Project settings for plain `claude` here:** `cp config/claude-settings.json .claude/settings.json`. This adds the status line and today's context, and turns Cognee off.
-2. **Protect the public notes vault**, which pushes to a public GitHub repo: `me vault guard-public --apply`.
-3. **Phone:** install the **ntfy** app (iOS or Android) and subscribe to the topic in `me.toml` [ntfy] `topic`. Then run `me notify-test`.
-4. **Google Sheets connector:** turn it on in claude.ai → Settings → Connectors. Work Log rows wait locally until you do.
-5. **Goals:** fill in the *me · Goals & OKRs* sheet, one row per key result.
-6. **Obsidian:**
-   - Open `~/Documents/me/vault` as a vault.
-   - Install the sidebar plugin: `ln -s ~/Documents/me/me_harness/obsidian-plugin ~/Documents/me/vault/.obsidian/plugins/me-harness`, then enable it under Community plugins. Do the same for the notes vault if you want it there.
-7. **Optional: `/me:*` skills and the privacy guard in every project:**
-   `claude plugin marketplace add ~/Documents/me/me_harness && claude plugin install me@me-local`
-8. **Optional: Web Clipper.** Import `clipper/me-inbox.json` in the Obsidian Web Clipper settings.
+| Group | What it checks | How it's fixed |
+|---|---|---|
+| Profile | your name, helpline country | `e` opens the profile editor (name, country, which vault is private or public) |
+| Accounts | Claude login, GitHub login | Enter runs `claude auth login` or `gh auth login --web` right there |
+| Connectors | Google Calendar, Drive, Atlassian (Jira), Google Sheets | opens claude.ai → Settings → Connectors; `D` re-checks (free, about 3s); Jira site auto-discovery |
+| Vaults | private vault, public vault protection, Obsidian plugin | creates the vault, gitignores private folders in a public repo, links the plugin |
+| Phone | ntfy | install ntfy, subscribe to the topic shown (the web Setup screen has a QR code), Enter sends a test |
+| Automation | Sheets, background jobs, project settings | each asks for confirmation first, since each changes something outside the repo |
+| Extras | web UI, memory, `/me:*` everywhere | optional |
+
+The same checklist is in Mission Control (http://127.0.0.1:4777 → **Setup**). It opens automatically on first run.
 
 ## What runs on its own (launchd, `me schedule status`)
 
@@ -43,6 +45,10 @@ me doctor                               # add --live to test the connectors head
 Autonomy is set in `autonomy.toml`: housekeeping runs automatically, and anything outward-facing waits for your approval. `me pause` stops every job; `me resume` restarts them.
 
 ## Daily use
+
+`me` with no arguments opens the terminal UI:
+- **Tabs:** Today, Approvals, Agents, Wellbeing, Setup.
+- **Keys:** `n`/`t`/`i` capture, `c` check-in, `p` plan, `s` shutdown, `d` diary, `b` brief, `a`/`x` approve or reject. Everything else is a command:
 
 ```sh
 me plan              # morning planning session (Top 3, focus blocks, Jira, approvals)

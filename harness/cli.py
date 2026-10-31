@@ -418,6 +418,14 @@ def cmd_proposals(args) -> int:
     return 0
 
 
+def cmd_tui(start: str) -> int:
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        print("me's terminal UI needs an interactive terminal; see `me --help` for commands")
+        return 1
+    from . import tui
+    return tui.main(start)
+
+
 def cmd_serve(args) -> int:
     from . import server
     server.serve(load())
@@ -505,7 +513,7 @@ def guard_public(cfg, apply: bool) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="me", description="Personal chief-of-staff harness on Claude Code")
-    sub = p.add_subparsers(dest="command", required=True)
+    sub = p.add_subparsers(dest="command")
 
     sub.add_parser("init", help="create me.toml, state db and the private vault").set_defaults(func=cmd_init)
 
@@ -635,12 +643,20 @@ def build_parser() -> argparse.ArgumentParser:
     pr.set_defaults(func=cmd_proposals)
 
     sub.add_parser("serve", help="Mission Control server + phone reply listener").set_defaults(func=cmd_serve)
+    sub.add_parser("tui", help="full-screen terminal UI (also: plain `me`)").set_defaults(func=lambda a: cmd_tui("Today"))
+    sub.add_parser("setup", help="guided setup in the terminal UI").set_defaults(func=lambda a: cmd_tui("Setup"))
     sub.add_parser("notify-test", help="send a test push to your phone").set_defaults(func=cmd_notify)
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.command is None:
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            return cmd_tui("Today")
+        parser.print_help()
+        return 0
     try:
         return args.func(args) or 0
     except ConfigError as e:

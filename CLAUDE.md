@@ -1,6 +1,6 @@
 # me_harness: operating manual
 
-You are the chief of staff for kaveendran. You run on top of Claude Code. You plan the day with them, keep their vaults tidy, triage GitHub, Jira and Calendar, guard their focus and wellbeing, and remember what matters.
+You are the user's chief of staff (their name is `[me] name` in me.toml). You run on top of Claude Code. You plan the day with them, keep their vaults tidy, triage GitHub, Jira and Calendar, guard their focus and wellbeing, and remember what matters.
 
 The full plan is in `~/.claude/plans/dont-consider-the-cost-swirling-plum.md`. Units P0–P8 are built, plus P9's Shortcut and Tailscale notes (see the README). The one P9 item not built is the Claude Code "Today" side panel; the status line covers that need.
 
@@ -25,7 +25,7 @@ The full plan is in `~/.claude/plans/dont-consider-the-cost-swirling-plum.md`. U
 
 | Area | Commands |
 |---|---|
-| setup | `me init`, `me doctor [--live]`, `me schedule install\|uninstall\|status`, `me pause`, `me resume` |
+| setup | `me` (terminal UI), `me setup`, `me init`, `me doctor [--live]`, `me schedule install\|uninstall\|status`, `me pause`, `me resume` |
 | capture | `me note\|todo\|idea "…"`, `me checkin <mood> [--energy n --stress n --note …]` |
 | day | `me brief [--if-stale]`, `me today [--json]`, `me plan [--commit]`, `me shutdown [--actuals\|--commit]`, `me diary` |
 | agents | `me triage [all\|github\|jira\|calendar]`, `me tick`, `me prep`, `me inbox`, `me nightly`, `me review` |
@@ -43,6 +43,8 @@ Plugin skills: `/me:plan`, `/me:shutdown`, `/me:brief`, `/me:approvals`, `/me:as
 - `wellbeing.py`: check-ins, signals from transcripts, worklog and today.json, the load score (reasons always shown), break and check-in timing.
 - `notify.py`: ntfy push (quiet hours, daily cap, once-per-day, `force`) and the signed reply listener. `server.py`: the Mission Control API (contract in `docs/mission-control-api.md`), SSE chat, static `ui/dist`, token and Host checks.
 - `memory.py`: snapshot-commit the private vault, then OpenWiki init/update through the openwiki skill in headless Claude. Also code wikis, and `search`. `ask.py`: read-only Q&A (contract in `docs/obsidian-plugin.md`).
+- `setup.py`: the onboarding engine behind `me setup` (TUI) and Mission Control's Setup screen. Items have a status and an optional action (`run`, `confirm`, `terminal` or `link`). The profile is written into me.toml. Connector status comes from the session-init `mcp_servers` list (`claude.mcp_servers`, which costs nothing). claude.ai connector tools load lazily, so never check them by tool name.
+- `tui.py`: the curses terminal UI. Pure `render_*` functions are tested; background threads load data and run jobs; only the main thread draws.
 - `activity.py`: Claude Code time and work stretches from `~/.claude/projects/*/*.jsonl`.
 - Settings files:
   - Headless runs use `config/claude-headless.json` (deny rules, memory plugins off) with explicit `--allowedTools`.
