@@ -35,6 +35,7 @@ def build_command(
     append_system_prompt: str | None = None,
     plugin_dir: Path | None = None,
     settings: Path | None = None,
+    persist: bool = True,
     claude_bin: str = "claude",
 ) -> list[str]:
     cmd = [claude_bin, "-p", prompt, "--output-format", "stream-json", "--verbose"]
@@ -56,6 +57,8 @@ def build_command(
         cmd += ["--plugin-dir", str(plugin_dir)]
     if settings:
         cmd += ["--settings", str(settings)]
+    if not persist:
+        cmd.append("--no-session-persistence")
     return cmd
 
 
@@ -103,8 +106,11 @@ def run(
     cwd: Path,
     timeout: float = 900,
     on_event: Callable[[dict], None] | None = None,
+    require_tool_prefix: str | None = None,
     **options,
 ) -> RunResult:
+    """Run claude -p. With require_tool_prefix, abort at session init (before
+    any model call, so at no cost) when no loaded tool has that prefix."""
     claude_bin = shutil.which("claude")
     if not claude_bin:
         return RunResult(error="claude CLI not found on PATH")
@@ -114,20 +120,31 @@ def run(
         stderr=subprocess.PIPE, text=True, bufsize=1,
     )
     timed_out = threading.Event()
+    missing_tools = threading.Event()
 
     def kill() -> None:
         timed_out.set()
         proc.kill()
 
+    def handle(event: dict) -> None:
+        if require_tool_prefix and event.get("type") == "system" and event.get("subtype") == "init":
+            if not any(str(t).startswith(require_tool_prefix) for t in event.get("tools") or []):
+                missing_tools.set()
+                proc.kill()
+        if on_event:
+            on_event(event)
+
     timer = threading.Timer(timeout, kill)
     timer.start()
     try:
-        result = parse_events(proc.stdout, on_event)
+        result = parse_events(proc.stdout, handle)
         stderr = proc.stderr.read()
         proc.wait()
     finally:
         timer.cancel()
-    if timed_out.is_set():
+    if missing_tools.is_set():
+        result.ok, result.error = False, f"no tools matching {require_tool_prefix} (connector not enabled)"
+    elif timed_out.is_set():
         result.ok, result.error = False, f"timed out after {timeout:.0f}s"
     elif proc.returncode and not result.ok and stderr.strip():
         result.error = f"{result.error}: {stderr.strip()[-500:]}"

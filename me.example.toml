@@ -45,6 +45,9 @@ cloud_id = ""
 projects = []
 jql_mine = "assignee = currentUser() AND statusCategory != Done ORDER BY priority DESC, updated DESC"
 
+[calendar]
+ids = ["primary"]       # calendars the brief reads
+
 [sheets]
 worklog_id = ""
 okr_id = ""
@@ -63,6 +66,7 @@ brief = "07:30"
 shutdown = "18:00"
 nightly = "22:00"
 weekly = "Fri 17:00"
+workdays = ["Mon", "Tue", "Wed", "Thu", "Fri"]
 triage_every_min = 30
 prep_every_min = 15
 work_hours = "09:00-18:30"
@@ -71,5 +75,6 @@ checkins = ["11:00", "15:00", "20:00"]
 
 [models]
 headless = "sonnet"
+scout = "haiku"          # data-fetching scouts (connector transport only)
 interactive = "opus"
 max_turns = 30

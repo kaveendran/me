@@ -13,6 +13,7 @@ HOME = Path(os.environ.get("ME_HOME") or Path(__file__).resolve().parent.parent)
 # Kinds of notes that must never be routed to a public zone.
 PRIVATE_KINDS = frozenset({"daily", "diary", "inbox", "reviews", "wellbeing"})
 LEVELS = frozenset({"auto", "approve", "off"})
+WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 _TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 _RANGE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$")
@@ -65,9 +66,23 @@ class Config:
 
     @property
     def claude_settings(self) -> Path:
-        # Passed as --settings to every session `me` launches: harness
-        # permissions, and memory plugins off so diary text stays local.
+        # Passed as --settings to every interactive session `me` launches:
+        # harness permissions, and memory plugins off so diary text stays local.
         return self.home / "config" / "claude-settings.json"
+
+    @property
+    def headless_settings(self) -> Path:
+        # Headless runs get deny rules only: their --allowedTools list is the
+        # whole permission surface, and "ask" rules would silently deny it.
+        return self.home / "config" / "claude-headless.json"
+
+    def model(self, role: str) -> str:
+        defaults = {"headless": "sonnet", "scout": "haiku", "interactive": "opus"}
+        return self.section("models").get(role, defaults[role])
+
+    def is_workday(self, day) -> bool:
+        workdays = self.section("schedule").get("workdays", WEEKDAYS[:5])
+        return WEEKDAYS[day.weekday()] in workdays
 
 
 def load(path: Path | None = None, home: Path = HOME) -> Config:
@@ -122,6 +137,9 @@ def _validate_schedule(s: dict) -> None:
     for t in s.get("checkins", []):
         if not _TIME.match(t):
             raise ConfigError(f"[schedule] checkins entries must be HH:MM, got {t!r}")
+    for d in s.get("workdays", []):
+        if d not in WEEKDAYS:
+            raise ConfigError(f"[schedule] workdays entries must be one of {', '.join(WEEKDAYS)}, got {d!r}")
 
 
 def load_autonomy(path: Path | None = None, home: Path = HOME) -> dict[str, dict[str, str]]:
@@ -138,6 +156,22 @@ def load_autonomy(path: Path | None = None, home: Path = HOME) -> dict[str, dict
             if level not in LEVELS:
                 raise ConfigError(f"autonomy [{agent}] {action} = {level!r}; use auto|approve|off")
     return raw
+
+
+def set_value(path: Path, section: str, key: str, value: str) -> None:
+    """Set a string value in one TOML section in place, keeping comments."""
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    in_section = False
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("["):
+            in_section = stripped == f"[{section}]"
+            continue
+        if in_section and re.match(rf"^{re.escape(key)}\s*=", stripped):
+            lines[i] = f'{key} = "{value}"\n'
+            path.write_text("".join(lines), encoding="utf-8")
+            return
+    raise ConfigError(f"{path}: no {key} in [{section}]")
 
 
 def autonomy_level(policy: dict, agent: str, action: str) -> str:
