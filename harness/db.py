@@ -80,6 +80,9 @@ MIGRATIONS = [
         synced TEXT
     );
     """,
+    """
+    ALTER TABLE proposals ADD COLUMN level TEXT;
+    """,
 ]
 
 

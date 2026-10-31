@@ -26,6 +26,7 @@ CALENDAR_SCHEMA = {
                 "all_day": {"type": "boolean"},
                 "attendees": {"type": "integer"},
                 "organizer_self": {"type": "boolean"},
+                "attendee_names": {"type": "array", "items": {"type": "string"}, "description": "display names or emails, max 12"},
                 "response": {"type": "string", "enum": ["accepted", "tentative", "needsAction", "declined", "none"]},
                 "meet_url": {"type": "string"},
                 "location": {"type": "string"},
@@ -103,7 +104,7 @@ def calendar(cfg: Config, day: date) -> dict:
         f"(today and tomorrow) using list_events on these calendars: {', '.join(ids)}. "
         "Return every event in the schema. Write start/end in my calendar's local time as YYYY-MM-DDTHH:MM "
         "(date only for all-day events). response is my own attendance status ('none' if I'm the only attendee). "
-        "attendees counts all attendees. Call nothing except list_events."
+        "attendees counts all attendees; attendee_names lists up to 12 names (or emails). Call nothing except list_events."
     )
     return _scout(cfg, "scout-calendar", prompt, ("mcp__claude_ai_Google_Calendar__list_events",), CALENDAR_SCHEMA)
 
@@ -134,3 +135,35 @@ def okr(cfg: Config) -> dict:
 def parse_local(value: str) -> datetime:
     dt = datetime.fromisoformat(value)
     return dt.astimezone().replace(tzinfo=None) if dt.tzinfo else dt
+
+
+JIRA_DETAIL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "issues": {"type": "array", "items": {
+            "type": "object",
+            "properties": {
+                **JIRA_SCHEMA["properties"]["issues"]["items"]["properties"],
+                "has_acceptance_criteria": {"type": "boolean"},
+                "days_since_update": {"type": "integer"},
+            },
+            "required": ["key", "summary", "status", "status_category", "has_acceptance_criteria"],
+        }},
+        "errors": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["issues", "errors"],
+}
+
+
+def jira_detail(cfg: Config, jql: str | None = None) -> dict:
+    """Like jira(), plus whether each description states acceptance criteria."""
+    j = cfg.section("jira")
+    if not j.get("cloud_id"):
+        return {"issues": [], "errors": ["jira: cloud_id not set in me.toml"]}
+    prompt = (
+        f"Call searchJiraIssuesUsingJql with cloudId '{j['cloud_id']}', jql \"{jql or j.get('jql_mine')}\", "
+        "maxResults 30, fields summary,status,priority,issuetype,updated,duedate,description. Return each issue in the "
+        "schema; has_acceptance_criteria is true when the description states testable acceptance criteria or a clear "
+        f"definition of done. days_since_update is relative to {date.today().isoformat()}. Call nothing else."
+    )
+    return _scout(cfg, "scout-jira", prompt, ("mcp__claude_ai_Atlassian__searchJiraIssuesUsingJql",), JIRA_DETAIL_SCHEMA)

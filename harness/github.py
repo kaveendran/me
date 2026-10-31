@@ -113,3 +113,40 @@ def day_activity(user: str, day: date) -> dict:
         errors.append(f"github activity: {e}")
     out["errors"] = errors
     return out
+
+
+def failed_log(repo: str, branch: str, max_chars: int = 12000) -> str:
+    """Tail of the latest failed workflow run's failed-step logs on a branch."""
+    runs = gh_json("run", "list", f"--repo={repo}", f"--branch={branch}", "--status=failure", "--limit=1",
+                   "--json", "databaseId,workflowName,displayTitle")
+    if not runs:
+        return ""
+    p = subprocess.run(["gh", "run", "view", str(runs[0]["databaseId"]), f"--repo={repo}", "--log-failed"],
+                       capture_output=True, text=True, timeout=60)
+    return f"workflow: {runs[0]['workflowName']}\n" + p.stdout[-max_chars:]
+
+
+def pr_diff(url: str, max_chars: int = 40000) -> str:
+    p = subprocess.run(["gh", "pr", "diff", url], capture_output=True, text=True, timeout=60)
+    return p.stdout[:max_chars]
+
+
+def notifications() -> list[dict]:
+    raw = gh_json("api", "notifications?per_page=50") or []
+    return [{"id": n["id"], "reason": n.get("reason"), "type": n["subject"].get("type"), "title": n["subject"].get("title"),
+             "repo": n["repository"]["full_name"], "updated": n.get("updated_at")} for n in raw]
+
+
+def unlabeled_own_issues(user: str) -> list[dict]:
+    raw = gh_json("search", "issues", f"--owner={user}", "--state=open", "--limit=20",
+                  "--json", "number,title,repository,url,updatedAt,labels")
+    return [_item(r) | {"body_hint": ""} for r in raw if not r.get("labels") and age_days(r["updatedAt"]) <= STALE_DAYS]
+
+
+def repo_labels(repo: str) -> list[str]:
+    return [l["name"] for l in gh_json("label", "list", f"--repo={repo}", "--limit=100", "--json", "name")]
+
+
+def merged_since(day: date) -> list[dict]:
+    return [_item(r) for r in gh_json("search", "prs", "--author=@me", f"--merged-at=>={day.isoformat()}", "--limit=50",
+                                      "--json", "number,title,repository,url,updatedAt")]

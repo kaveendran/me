@@ -119,6 +119,7 @@ def synthesize(cfg: Config, conn, day: date, gathered: dict) -> dict:
 def _event_view(e: dict) -> dict:
     return {"id": e.get("id"), "title": e["title"], "start": e["_start"].strftime("%H:%M"),
             "end": e["_end"].strftime("%H:%M"), "attendees": e.get("attendees", 0),
+            "attendee_names": e.get("attendee_names", []), "organizer_self": e.get("organizer_self", False),
             "meet_url": e.get("meet_url") or "", "response": e.get("response")}
 
 
