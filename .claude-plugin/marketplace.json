@@ -1,0 +1,11 @@
+{
+  "name": "me-local",
+  "owner": { "name": "kaveendran" },
+  "plugins": [
+    {
+      "name": "me",
+      "source": "./plugin",
+      "description": "Personal chief-of-staff harness: quick capture, diary, daily rituals, privacy guard."
+    }
+  ]
+}

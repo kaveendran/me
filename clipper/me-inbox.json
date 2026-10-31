@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "0.1.0",
+  "name": "me inbox",
+  "behavior": "create",
+  "noteNameFormat": "{{date|date:\"YYYY-MM-DD\"}} {{title|safe_name}}",
+  "path": "Inbox/clips",
+  "noteContentFormat": "{{highlights}}\n\n---\n\n{{content}}",
+  "properties": [
+    { "name": "type", "value": "clip", "type": "text" },
+    { "name": "source", "value": "{{url}}", "type": "text" },
+    { "name": "title", "value": "{{title}}", "type": "text" },
+    { "name": "captured", "value": "{{date}}", "type": "datetime" },
+    { "name": "status", "value": "unprocessed", "type": "text" },
+    { "name": "private", "value": "true", "type": "checkbox" }
+  ],
+  "triggers": []
+}
