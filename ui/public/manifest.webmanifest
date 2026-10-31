@@ -1,0 +1,14 @@
+{
+  "name": "me · Mission Control",
+  "short_name": "me",
+  "description": "Your day, approvals, work, agents, wellbeing and memory.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0a0e16",
+  "theme_color": "#0a0e16",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
