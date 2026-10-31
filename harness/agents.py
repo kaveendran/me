@@ -194,9 +194,10 @@ def triage_jira(cfg: Config, conn, policy: dict) -> dict:
                              "input": {"issueKey": key, "cloudId": cloud}},
                     preview=f"Move {key} \"{issue['summary']}\" → Done", reason=f"{pr['repo']}#{pr['number']} merged",
                     undo=f"Move {key} back on https://{site}/browse/{key}"))
-    for key, issue in issues.items():
-        if issue["status_category"] == "Done" or issue.get("has_acceptance_criteria", True):
-            continue
+    unclear = [i for i in issues.values() if i["status_category"] == "To Do" and not i.get("has_acceptance_criteria", True)
+               and i.get("days_since_update", 0) <= 14]
+    for issue in unclear[:3]:  # a few fresh tickets per run, not a wall of identical comments
+        key = issue["key"]
         body = ("Could we add acceptance criteria to this ticket? A short list of testable outcomes would help me "
                 "scope it and know when it's done. Thanks!")
         made.append(proposals.propose(

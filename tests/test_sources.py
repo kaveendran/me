@@ -96,6 +96,20 @@ class ScheduleTest(unittest.TestCase):
             self.assertTrue(p["StandardOutPath"].endswith("state/logs/brief.log"))
             plistlib.dumps(p)  # serialisable
 
+    def test_interval_keepalive_daily_weekly_jobs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = make_cfg(Path(tmp))
+            jobs = schedule.jobs(cfg)
+            self.assertEqual(set(jobs), {"brief", "shutdown-nudge", "triage", "tick", "nightly", "review", "serve"})
+            serve = schedule.plist(cfg, "serve", jobs["serve"], "/me")
+            self.assertTrue(serve["KeepAlive"] and serve["RunAtLoad"])
+            self.assertNotIn("StartCalendarInterval", serve)
+            self.assertEqual(schedule.plist(cfg, "triage", jobs["triage"], "/me")["StartInterval"], 1800)
+            self.assertEqual(len(schedule.plist(cfg, "nightly", jobs["nightly"], "/me")["StartCalendarInterval"]), 7)
+            self.assertEqual(schedule.plist(cfg, "review", jobs["review"], "/me")["StartCalendarInterval"],
+                             [{"Weekday": 5, "Hour": 17, "Minute": 0}])
+            self.assertEqual(schedule.describe(jobs["tick"]), "every 15 min")
+
 
 class ConfigEditTest(unittest.TestCase):
     def test_set_value_in_section_only(self):

@@ -12,6 +12,7 @@ A short conversation, about five minutes. You bring a sharp proposal and the use
 1. `me brief --if-stale`. This takes about a minute when it has to rebuild; tell the user "gathering your day…" first.
 2. `me today --json`. This has today's events, focus windows, proposed Top 3, suggested blocks, risks, review requests, your PRs with CI state, Jira issues, carry-over, inbox todos, open loops and KRs. Items with `stale: true` are not candidates.
 3. If the brief's `errors` list is non-empty, mention it in one line (for example "Jira didn't load") and carry on.
+4. `me proposals list`. Note any pending agent proposals; they go in the commit step.
 
 ## 2. Present (one compact message)
 
@@ -47,6 +48,7 @@ Then list the outward actions in one message and ask once ("Do all of these?"):
 - **Calendar:** one `create_event` per block. Summary `🎯 <task>`, local start and end times today (no offset), description `Focus block · me_harness`, no attendees.
 - **Jira:** for each Top 3 ticket still in To Do, call `getTransitionsForJiraIssue` and then `transitionJiraIssue` to the In Progress transition. cloudId is in `me.toml` [jira].
 - **Work Log:** `me sheets sync`. If it reports pending because the Sheets connector is off, say the row is saved locally and will sync later.
+- **Agent proposals:** list pending ones (one line each; show full text for outward-facing ones with `me proposals show <id>`). Approve or reject each per the user's answer with `me proposals approve|reject <id>`.
 
 Do only what the user approves. Report each result in one line.
 

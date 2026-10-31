@@ -117,10 +117,12 @@ def _count_today(conn, kind: str | None = None) -> int:
 
 
 def send(cfg: Config, conn, kind: str, title: str, message: str, *, priority: int = 3, tags=(), click: str | None = None,
-         actions=(), once_per_day: bool = False, also_desktop: bool = False, now: datetime | None = None) -> str:
-    """Push one notification. Returns sent | quiet | capped | duplicate | unconfigured | failed: …"""
+         actions=(), once_per_day: bool = False, also_desktop: bool = False, force: bool = False,
+         now: datetime | None = None) -> str:
+    """Push one notification. Returns sent | quiet | capped | duplicate | unconfigured | failed: …
+    Priority 5 or force bypasses quiet hours and the daily cap."""
     now = now or datetime.now()
-    urgent = priority >= 5
+    urgent = priority >= 5 or force
     if once_per_day and _count_today(conn, kind):
         return "duplicate"
     if not urgent and in_quiet_hours(cfg, now):

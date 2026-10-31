@@ -11,7 +11,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 
-from . import claude, db, day as daymod, github, scouts, today as todaymod, vault
+from . import claude, db, day as daymod, github, proposals, scouts, today as todaymod, vault
 from .config import Config
 
 SYNTH_SCHEMA = {
@@ -144,6 +144,7 @@ def run(cfg: Config, conn, day: date | None = None, now: datetime | None = None)
         "reviews": gh["reviews"], "my_prs": gh["my_prs"], "issues": gh["issues"],
         "jira": gathered["jira"], "okr": gathered["okr"], **gathered["vault"],
         "errors": gathered["errors"],
+        "proposals_pending": len(proposals.listing(conn, "pending")),
     }
     todaymod.save(cfg, today)
     vault.write_section(cfg, "daily", "brief", render(today, cfg.section("jira").get("site")), day)
@@ -195,6 +196,8 @@ def render(t: dict, site: str | None) -> str:
             ("in progress " + ", ".join(daymod.ref_md(j["key"], site) for j in active)) if active else "",
             ("to do " + ", ".join(daymod.ref_md(j["key"], site) for j in todo[:6])) if todo else "",
         ])))
+    if t.get("proposals_pending"):
+        lines.append(f"**Approvals waiting**: {t['proposals_pending']} (`me proposals` or Mission Control)")
     if t["carry"]:
         lines.append("**Carried over**: " + "; ".join(t["carry"][:6]))
     if t["inbox_todos"]:

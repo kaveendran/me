@@ -428,7 +428,8 @@ def cmd_notify(args) -> int:
     cfg = load()
     with closing(db.connect(cfg.db_path)) as conn:
         outcome = notify.send(cfg, conn, "test", "me_harness test", "Notifications work. Buttons below are signed.",
-                              priority=4, tags=["white_check_mark"], actions=[notify.button(cfg, "Mood 4", "mood", 4)])
+                              priority=3, tags=["white_check_mark"], force=True,
+                              actions=[notify.button(cfg, "Mood 4", "mood", 4)])
     print(f"{outcome}; subscribe to topic {cfg.section('ntfy').get('topic')} in the ntfy app")
     return 0
 

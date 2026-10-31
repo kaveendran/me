@@ -161,12 +161,22 @@ def run(
         drain.start()
         timer = threading.Timer(timeout, kill)
         timer.start()
+        # claude runs in its own process group, so a Ctrl-C or SIGTERM aimed at us (the
+        # Obsidian plugin's Stop button) wouldn't reach it. Forward it by killing the group.
+        previous = {}
+        if threading.current_thread() is threading.main_thread():
+            def on_signal(signum, frame):
+                stop()
+                raise SystemExit(128 + signum)
+            previous = {s: signal.signal(s, on_signal) for s in (signal.SIGINT, signal.SIGTERM)}
         try:
             result = parse_events(proc.stdout, handle)
         except _Abort:
             result = RunResult()
         finally:
             timer.cancel()
+            for s, h in previous.items():
+                signal.signal(s, h)
         if missing_tools.is_set() or timed_out.is_set():
             stop()
             proc.wait()

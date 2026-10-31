@@ -133,6 +133,8 @@ def search(cfg: Config, query: str, limit: int = 20) -> dict:
         if page.name == "INSTRUCTIONS.md" or any(p.startswith(".") for p in page.relative_to(wiki).parts):
             continue
         text = page.read_text(encoding="utf-8", errors="ignore")
+        if text.startswith("---\n") and (end := text.find("\n---", 4)) != -1:
+            text = text[end + 4:].lstrip()  # skip OKF frontmatter: snippets should show prose
         lower = text.lower()
         hits = sum(lower.count(w) for w in words)
         if not hits:

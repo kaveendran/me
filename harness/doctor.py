@@ -128,6 +128,19 @@ def checks(live: bool = False):
     jobs = schedule.status(cfg)
     installed = [j for j in jobs if "not installed" not in j]
     yield (OK if len(installed) == len(jobs) else WARN), "schedule", f"{len(installed)}/{len(jobs)} launchd jobs installed"
+    from . import memory
+    root = memory.vault_root(cfg)
+    yield (OK if memory.initialized(root) else WARN), "memory", "OpenWiki memory built" if memory.initialized(root) \
+        else "not built yet (first nightly run builds it, or `me memory update`)"
+    import urllib.request
+    port = int(cfg.section("serve").get("port", 4777))
+    try:
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=2).close()
+        yield OK, "mission control", f"http://127.0.0.1:{port}"
+    except OSError:
+        yield WARN, "mission control", "not running (`me serve`, or `me schedule install` keeps it up)"
+    ui = cfg.home / "ui" / "dist" / "index.html"
+    yield (OK if ui.exists() else WARN), "ui build", "built" if ui.exists() else "cd ui && npm install && npm run build"
     if not (cfg.home / ".claude" / "settings.json").exists():
         yield WARN, "project settings", "plain `claude` here still records to Cognee; cp config/claude-settings.json .claude/settings.json"
 
