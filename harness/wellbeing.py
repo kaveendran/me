@@ -66,8 +66,11 @@ def signals(cfg: Config, conn, day: date, now: datetime | None = None, meeting_m
         meeting_min = actual.get("meeting_min", 0)
     entries = checkins(conn, day)
     skipped = 0
+    first = conn.execute("SELECT MIN(day) FROM worklog").fetchone()[0]  # don't count days before the harness existed
     for i in range(1, 8):
         d = day - timedelta(days=i)
+        if not first or d.isoformat() < first:
+            break
         if not cfg.is_workday(d):
             continue
         if db.get_worklog(conn, d.isoformat())[1].get("at"):
