@@ -149,7 +149,7 @@ def save_profile(cfg: Config, data: dict) -> Config:
         value = str(value).strip()
         if key == "crisis_country" and value and not re.fullmatch(r"[A-Za-z]{2}", value):
             raise ValueError("crisis_country must be a 2-letter country code")
-        if key.endswith("_vault") and value and not (value.startswith("/") or value.startswith("~")):
+        if key.endswith("_vault") and value and not (Path(value).is_absolute() or value.startswith("~")):
             raise ValueError(f"{key} must be an absolute path or start with ~")
         if key == "private_vault" and not value:
             raise ValueError("a private vault path is required")

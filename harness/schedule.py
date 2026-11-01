@@ -306,7 +306,7 @@ def _task_command(job: dict) -> tuple[str, list[str]]:
     """pythonw runs a job without flashing a console window every 15 minutes."""
     pythonw = host.background_python()
     if pythonw:
-        return str(pythonw), ["-X", "utf8", "-m", "harness", *job["args"]]
+        return str(pythonw), ["-P", "-X", "utf8", "-m", "harness", *job["args"]]
     return _me(), job["args"]
 
 

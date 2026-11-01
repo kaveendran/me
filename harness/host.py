@@ -226,7 +226,8 @@ def relaunch_utf8(argv: list[str] | None) -> int | None:
     args = sys.argv[1:] if argv is None else argv
     previous = signal.signal(signal.SIGINT, lambda *_: None)  # Ctrl-C is the child's to handle
     try:
-        return subprocess.call([sys.executable, "-X", "utf8", "-m", "harness", *args],
+        # -P: import the installed harness, never a folder of that name in the current directory.
+        return subprocess.call([sys.executable, "-P", "-X", "utf8", "-m", "harness", *args],
                                env={**os.environ, "PYTHONUTF8": "1"})
     finally:
         signal.signal(signal.SIGINT, previous)

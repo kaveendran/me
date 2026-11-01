@@ -70,6 +70,15 @@ class HostTest(unittest.TestCase):
         with mock.patch("harness.host.WINDOWS", True), mock.patch.object(sys, "flags", mock.Mock(utf8_mode=1)):
             self.assertIsNone(host.relaunch_utf8(["today"]))
 
+    def test_relaunch_imports_the_installed_harness(self):
+        # -P: a `harness` folder in the current directory must not shadow the installed one.
+        with mock.patch("harness.host.WINDOWS", True), mock.patch.object(sys, "flags", mock.Mock(utf8_mode=0)), \
+             mock.patch("harness.host.subprocess.call", return_value=3) as call:
+            self.assertEqual(host.relaunch_utf8(["note", "hi"]), 3)
+        argv, env = call.call_args[0][0], call.call_args[1]["env"]
+        self.assertEqual(argv[1:], ["-P", "-X", "utf8", "-m", "harness", "note", "hi"])
+        self.assertEqual(env["PYTHONUTF8"], "1")
+
     def test_windowless_writes_output_to_the_log(self):
         with tempfile.TemporaryDirectory() as tmp:
             log = Path(tmp) / "logs" / "brief.log"
