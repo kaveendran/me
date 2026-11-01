@@ -48,11 +48,11 @@ def persona(cfg: Config, note: Path | None) -> str:
     return " ".join(lines)
 
 
-def stream(cfg: Config, question: str, note: Path | None, session: str | None, emit) -> claude.RunResult:
+def stream(cfg: Config, question: str, note: Path | None, session: str | None, emit, cancel=None) -> claude.RunResult:
     dirs = [z.vault for z in cfg.zones.values()]
     return claude.run(question, cwd=cfg.home, model=cfg.model("headless"), max_turns=20, allowed_tools=READ_TOOLS,
                       append_system_prompt=persona(cfg, note), resume=session, add_dirs=dirs,
-                      settings=cfg.headless_settings, on_event=emit, timeout=600)
+                      settings=cfg.headless_settings, on_event=emit, timeout=600, cancel=cancel)
 
 
 def note_titles(cfg: Config, limit: int = 1500) -> list[str]:

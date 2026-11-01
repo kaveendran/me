@@ -224,7 +224,7 @@ With **adaptive** on, the applied colours follow a state picked from your worklo
   },
   "themes": [{"id": "aurora", "label": "Aurora", "description": "Indigo and teal on deep navy",
               "swatches": {"dark": ["#090d17", "#10151f", "#9da9ff", "#00ccbc"], "light": ["#f3f7ff", "#ffffff", "#5359ba", "#00766d"]}}],
-  "states": [{"id": "flow", "label": "In flow", "message": "…", "calm": false}]
+  "states": [{"id": "flow", "label": "In flow", "message": "…", "when": "Load is 30 or less, and your latest mood or energy is 4 or more.", "calm": false}]
 }
 ```
 

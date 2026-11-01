@@ -178,6 +178,21 @@ class TuiRenderTest(unittest.TestCase):
         lines, _ = tui.render_agents({"paused": True, "agents": []}, 80)
         self.assertIn("Paused", self.text(lines))
 
+    def test_chat(self):
+        self.assertIn("Ask me anything", self.text(tui.render_chat([], 80)))
+        msgs = [{"role": "you", "text": "what's next?"},
+                {"role": "me", "text": "## Focus\n- **Fix CI** on `a/b#4`\n- Review [CGCS-1](https://x/browse/CGCS-1)", "tools": ["Read Daily/2026-11-02.md"],
+                 "status": "done", "cost": 0.04},
+                {"role": "you", "text": "and then?"}, {"role": "me", "text": "", "tools": [], "status": "thinking"}]
+        out = self.text(tui.render_chat(msgs, 80, "⠋"))
+        for expected in ("you  what's next?", "me   Read Daily/2026-11-02.md", "     Focus", "     • Fix CI on a/b#4", "• Review CGCS-1", "$0.04",
+                         "⠋ thinking…"):
+            self.assertIn(expected, out)
+        self.assertNotIn("**", out)
+        self.assertEqual(tui.tool_label({"name": "Read", "input": {"file_path": "/v/Daily/2026-11-02.md"}}), "Read Daily/2026-11-02.md")
+        self.assertEqual(tui.tool_label({"name": "mcp__claude_ai_Atlassian__searchJiraIssuesUsingJql"}), "Atlassian search")
+        self.assertEqual(tui.tool_label({"name": "Grep", "input": {"pattern": "Ravi"}}), "Grep Ravi")
+
     def test_state_banner_heading_and_meter(self):
         self.assertEqual(tui.render_state({"id": "steady", "label": "Steady", "message": "x"}, 80), [])
         out = self.text(tui.render_state({"id": "busy", "label": "Busy", "message": "Pace yourself.",

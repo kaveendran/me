@@ -7,14 +7,6 @@ import { useTheme } from "../theme";
 import { useToast } from "../toast";
 
 /** When each state applies (mirrors the table in docs/mission-control-api.md). */
-const WHEN: Record<string, string> = {
-  flow: "Load is 30 or less, and your latest mood or energy is 4 or more.",
-  steady: "Everything else: a normal day.",
-  busy: "Load is elevated, or you've gone 100+ minutes without a break.",
-  strained: "Your latest check-in has mood 2 or lower or stress 4 or higher, or load is high.",
-  rest: "Not a workday, or outside your work hours.",
-};
-
 const PRESETS: ReadonlyArray<{ name: string; hex: string }> = [
   { name: "Indigo", hex: "#6366f1" },
   { name: "Blue", hex: "#3b82f6" },
@@ -397,7 +389,7 @@ export function AppearanceScreen() {
                     {st.calm ? <span className="tag">Calm</span> : null}
                   </div>
                   <p className="state-row-msg">{st.message}</p>
-                  <p className="state-row-when">{WHEN[st.id] ?? ""}</p>
+                  <p className="state-row-when">{st.when}</p>
                 </div>
                 <button
                   type="button"

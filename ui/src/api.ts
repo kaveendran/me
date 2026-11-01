@@ -393,6 +393,7 @@ export interface StateInfo {
   id: string;
   label: string;
   message: string;
+  when: string;
   calm: boolean;
 }
 

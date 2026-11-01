@@ -46,6 +46,7 @@ class State:
     accent: tuple[float, float] | None  # None keeps the theme's own accent
     accent_2: float | None
     neutral: tuple[float, float] | None  # tint the greys as well
+    when: str = ""
     calm: bool = False  # UIs drop glow and motion
 
 
@@ -58,12 +59,17 @@ THEMES = {t.id: t for t in (
 )}
 
 STATES = {s.id: s for s in (
-    State("flow", "In flow", "Light load and good energy. A good window for deep work.", (165, 0.14), 200, None),
-    State("steady", "Steady", "A normal day. Nothing needs you right now.", None, None, None),
-    State("busy", "Busy", "A heavy day. Pace yourself and keep your breaks.", (70, 0.13), 40, None),
-    State("strained", "Take it easy", "Load is high, so I've quieted things down. One thing at a time.",
-          (295, 0.07), 250, (290, 0.014), calm=True),
-    State("rest", "Off hours", "Off the clock. Work can wait until tomorrow.", (55, 0.08), 20, (50, 0.012), calm=True),
+    State("flow", "In flow", "Light load and good energy. A good window for deep work.", (165, 0.14), 200, None,
+          "Load is 30 or less, and your latest mood or energy is 4 or more."),
+    State("steady", "Steady", "A normal day. Nothing needs you right now.", None, None, None,
+          "Everything else: a normal day."),
+    State("busy", "Busy", "A heavy day. Pace yourself and keep your breaks.", (70, 0.13), 40, None,
+          "Load is elevated, or you've gone 100+ minutes without a break."),
+    State("strained", "Take it easy", "Go gently. I've quieted things down, so take one thing at a time.",
+          (295, 0.07), 250, (290, 0.014), "A check-in in the last 6 hours had mood 2 or lower or stress 4 or higher, "
+          "or load is high.", calm=True),
+    State("rest", "Off hours", "Off the clock. Work can wait until tomorrow.", (55, 0.08), 20, (50, 0.012),
+          "Not a workday, or outside your work hours.", calm=True),
 )}
 
 # Lightness steps per mode. The greys take the theme's (or state's) tint.
@@ -286,7 +292,8 @@ def snapshot(cfg: Config, conn, preview: str | None = None, now: datetime | None
                     "swatches": {mode: [pal[k] for k in ("bg", "surface", "accent", "accent-2")]
                                  for mode in ("dark", "light") for pal in [palette(t, mode, accent="")]}}
                    for t in THEMES.values()],
-        "states": [{"id": s.id, "label": s.label, "message": s.message, "calm": s.calm} for s in STATES.values()],
+        "states": [{"id": s.id, "label": s.label, "message": s.message, "when": s.when, "calm": s.calm}
+                   for s in STATES.values()],
     }
 
 

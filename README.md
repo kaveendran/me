@@ -47,8 +47,9 @@ Autonomy is set in `autonomy.toml`: housekeeping runs automatically, and anythin
 ## Daily use
 
 `me` with no arguments opens the terminal UI:
-- **Tabs:** Today, Approvals, Agents, Wellbeing, Setup.
-- **Keys:** `n`/`t`/`i` capture, `c` check-in, `p` plan, `s` shutdown, `d` diary, `b` brief, `a`/`x` approve or reject, `T` appearance, `?` every key. Everything else is a command:
+- **Tabs:** Today, Approvals, Agents, Wellbeing, Setup, Chat.
+- **Chat:** press `/` anywhere to ask a question and get the answer right there, streamed, with the notes it read. It's read-only and multi-turn; `x` stops an answer or starts a new chat.
+- **Keys:** `n`/`t`/`i` capture, `c` check-in, `b` brief, `a`/`x` approve or reject, `T` appearance, `?` every key. `p` plan, `s` shutdown and `d` diary open a full Claude Code session, because those change your calendar, Jira and notes and Claude Code asks before each change; type `/exit` to come back. Everything else is a command:
 
 ```sh
 me plan              # morning planning session (Top 3, focus blocks, Jira, approvals)

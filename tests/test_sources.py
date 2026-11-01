@@ -5,6 +5,7 @@ import os
 import plistlib
 import stat
 import tempfile
+import threading
 import time
 import unittest
 from datetime import date, datetime, timedelta, timezone
@@ -72,6 +73,17 @@ class ClaudeRunTest(unittest.TestCase):
                 r = claude.run("x", cwd=Path(tmp), require_tool_prefix="mcp__claude_ai_Google_Sheets")
             self.assertFalse(r.ok)
             self.assertIn("connector not enabled", r.error)
+            self.assertLess(time.monotonic() - t0, 10)
+
+    def test_cancel_kills_the_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.fake_claude(Path(tmp), ["Read"], pause=30)
+            cancel = threading.Event()
+            threading.Timer(0.5, cancel.set).start()
+            with mock.patch.dict(os.environ, {"PATH": f"{tmp}:{os.environ['PATH']}"}):
+                t0 = time.monotonic()
+                r = claude.run("x", cwd=Path(tmp), cancel=cancel)
+            self.assertEqual((r.ok, r.error), (False, "cancelled"))
             self.assertLess(time.monotonic() - t0, 10)
 
     def test_run_success_with_matching_tools(self):

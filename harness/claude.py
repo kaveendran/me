@@ -122,18 +122,22 @@ def run(
     on_event: Callable[[dict], None] | None = None,
     require_tool_prefix: str | None = None,
     require_mcp: str | None = None,
+    cancel: threading.Event | None = None,
     **options,
 ) -> RunResult:
     """Run claude -p. With require_tool_prefix (a loaded tool) or require_mcp (an MCP
     server or claude.ai connector by name, e.g. "claude.ai Google Sheets"), abort at
     session init, before any model call and so at no cost, when it's unavailable.
-    Connector tools load lazily, so connectors must be checked with require_mcp."""
+    Connector tools load lazily, so connectors must be checked with require_mcp.
+    Setting `cancel` (from another thread) kills the run within about 0.2s."""
     claude_bin = shutil.which("claude")
     if not claude_bin:
         return RunResult(error="claude CLI not found on PATH")
     cmd = build_command(prompt, claude_bin=claude_bin, **options)
     timed_out = threading.Event()
     missing_tools = threading.Event()
+    cancelled = threading.Event()
+    finished = threading.Event()
     stderr_chunks: list[str] = []
 
     with subprocess.Popen(
@@ -167,6 +171,14 @@ def run(
         drain.start()
         timer = threading.Timer(timeout, kill)
         timer.start()
+        if cancel is not None:
+            def watch() -> None:
+                while not finished.is_set():
+                    if cancel.wait(0.2):
+                        cancelled.set()
+                        stop()
+                        return
+            threading.Thread(target=watch, daemon=True).start()
         # claude runs in its own process group, so a Ctrl-C or SIGTERM aimed at us (the
         # Obsidian plugin's Stop button) wouldn't reach it. Forward it by killing the group.
         previous = {}
@@ -180,10 +192,11 @@ def run(
         except _Abort:
             result = RunResult()
         finally:
+            finished.set()
             timer.cancel()
             for s, h in previous.items():
                 signal.signal(s, h)
-        if missing_tools.is_set() or timed_out.is_set():
+        if missing_tools.is_set() or timed_out.is_set() or cancelled.is_set():
             stop()
             proc.wait()
             # A child forked while the parent was dying escapes the first kill and
@@ -202,6 +215,8 @@ def run(
         result.ok, result.error = False, f"{require_mcp or require_tool_prefix} unavailable (connector not enabled)"
     elif timed_out.is_set():
         result.ok, result.error = False, f"timed out after {timeout:.0f}s"
+    elif cancelled.is_set():
+        result.ok, result.error = False, "cancelled"
     elif proc.returncode and not result.ok and stderr.strip():
         result.error = f"{result.error}: {stderr.strip()[-500:]}"
     return result

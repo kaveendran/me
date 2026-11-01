@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import curses
 import locale
+import re
 import shutil
+import signal
 import subprocess
 import threading
 import time
@@ -22,13 +24,14 @@ import unicodedata
 from contextlib import closing
 from datetime import datetime
 
-from . import db, proposals, setup, theme, vault, wellbeing
+from . import ask, db, proposals, setup, theme, vault, wellbeing
 from . import brief as briefmod
 from . import server
 from . import today as todaymod
 from .config import Config
 
-TABS = ("Today", "Approvals", "Agents", "Wellbeing", "Setup")
+TABS = ("Today", "Approvals", "Agents", "Wellbeing", "Setup", "Chat")
+CHAT = TABS.index("Chat")
 SPARK = "▁▂▃▄▅▆▇█"
 ICONS = {"ok": "✓", "warn": "!", "todo": "○", "fail": "✗"}
 STATUS_STYLE = {"ok": "ok", "warn": "warn", "todo": "accent", "fail": "bad", "error": "bad", "never": "dim"}
@@ -36,12 +39,14 @@ BAND_STYLE = {"ok": "ok", "elevated": "warn", "high": "bad"}
 STATE_ICON = {"flow": "◆", "steady": "●", "busy": "▲", "strained": "◐", "rest": "☾"}
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 RITUALS = {"p": ("plan", "/me:plan"), "s": ("shutdown", "/me:shutdown"), "d": ("diary", "/me:diary")}
+CHAT_HINTS = ("What should I focus on next?", "What's waiting on me in Jira and GitHub?", "What did I get done this week?")
 HELP = """Everywhere
-  1-5, tab      switch tabs
+  1-6, tab      switch tabs
+  /             chat: ask anything, answered right here (read-only)
   ↑↓, j k       move the selection or scroll
   n  t  i       capture a note, todo or idea
   c             check in: mood, energy, stress
-  p  s  d       plan the day, shutdown, diary (opens Claude here)
+  p  s  d       plan the day, shutdown, diary (opens Claude Code)
   b             gather today's brief now
   T             appearance: theme, light or dark, adaptive colours
   r             refresh this tab
@@ -50,6 +55,11 @@ HELP = """Everywhere
 Approvals    ⏎ details   a approve   x reject   A approve every safe one
 Agents       ⏎ run now   P pause or resume every scheduled job
 Setup        ⏎ fix the selected item   e edit profile   D deep re-check
+Chat         ⏎ or / ask   x stop the answer, or start a new chat   ↑↓ scroll
+
+p, s and d open a full Claude Code session, because planning and shutdown change
+your calendar, Jira and notes and Claude Code asks before each change. Type /exit
+there to come back.
 
 With adaptive colours on, the accent follows your day: emerald when you're in
 flow, amber when it's busy, and soft and quiet when it's heavy or after hours."""
@@ -242,6 +252,66 @@ def render_setup(s: dict, width: int) -> tuple[list[Line], list[int]]:
     return lines, rows
 
 
+def tool_label(block: dict) -> str:
+    """A short label for a tool call: "Read Daily/2026-11-02.md", "Grep Ravi", "Atlassian search"."""
+    name, args = block.get("name", ""), block.get("input") or {}
+    if name.startswith("mcp__"):
+        parts = name.split("__")
+        server = parts[1].removeprefix("claude_ai_").replace("_", " ")
+        return f"{server} {re.sub(r'(?<!^)(?=[A-Z])', ' ', parts[-1]).split()[0].lower()}"
+    arg = args.get("file_path") or args.get("pattern") or args.get("path") or ""
+    if "/" in arg and name == "Read":
+        arg = "/".join(arg.split("/")[-2:])
+    return f"{name} {arg}".strip()[:60]
+
+
+def _markdown(text: str, width: int, indent: str) -> list[Line]:
+    """Just enough Markdown for a terminal: headings, bullets, no ** or backticks."""
+    lines: list[Line] = []
+    for raw in text.splitlines():
+        line = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", raw).replace("**", "").replace("`", "")
+        if not line.strip():
+            lines.append([])
+        elif line.lstrip().startswith("#"):
+            lines += [[(l, "title")] for l in wrap(line.lstrip("# "), width, indent)]
+        elif re.match(r"\s*([-*]|\d+\.) ", line):
+            lead = len(line) - len(line.lstrip())
+            body = re.sub(r"^\s*[-*] ", "• ", line).lstrip()
+            sub = indent + " " * lead
+            wrapped = textwrap.wrap(body, max(10, width - len(sub)), initial_indent=sub, subsequent_indent=sub + "  ")
+            lines += [[(l, "text")] for l in wrapped]
+        else:
+            lines += [[(l, "text")] for l in wrap(line, width, indent)]
+    return lines
+
+
+def render_chat(messages: list[dict], width: int, spin: str = "⠋") -> list[Line]:
+    if not messages:
+        lines: list[Line] = [[("Ask me anything", "title")]]
+        lines += [[(l, "dim")] for l in wrap("I can read your notes, memory, calendar, Jira and GitHub, and answer here. "
+                                             "Read-only: I look things up, I don't change anything.", width)]
+        lines += [[], [("Try", "heading")]] + [[("  › ", "accent"), (h, "text")] for h in CHAT_HINTS]
+        return lines + [[], [("Press ", "dim"), ("/", "key"), (" or ", "dim"), ("⏎", "key"), (" to type.", "dim")]]
+    lines = []
+    for m in messages:
+        if m["role"] == "you":
+            first, *rest = wrap(m["text"], width - 5) or [""]
+            lines += [[("you  ", "accent"), (first, "title")]] + [[("     " + r, "title")] for r in rest]
+        elif m["role"] == "note":
+            lines += [[(l, "warn")] for l in wrap(m["text"], width, "     ")]
+        else:
+            lines.append([("me", "heading"), ("   " + " · ".join(m["tools"][-4:]) if m.get("tools") else "", "faint")])
+            lines += _markdown(m.get("text", ""), width, "     ")
+            if m.get("status") == "thinking":
+                lines.append([(f"     {spin} ", "accent"), ("looking things up…" if m.get("tools") else "thinking…", "dim")])
+            if m.get("error"):
+                lines.append([("     " + m["error"][: width - 5], "dim" if m["error"] == "cancelled" else "bad")])
+            elif m.get("status") == "done" and m.get("cost") is not None:
+                lines.append([(f"     ${m['cost']:.2f}", "faint")])
+        lines.append([])
+    return lines
+
+
 # ---------------------------------------------------------------- app
 
 class App:
@@ -257,6 +327,11 @@ class App:
         self.status = ""
         self.lock = threading.Lock()
         self.theme_state: dict | None = None  # the live adaptive state, loaded in the background
+        self.chat: list[dict] = []  # this session's conversation; never written to disk by the UI
+        self.chat_session: str | None = None
+        self.chat_job: threading.Thread | None = None
+        self.chat_cancel = threading.Event()
+        self.chat_follow = True
         self._pending_palette: dict | None = None
         self._picking = False
         self._sys_mode = theme.terminal_mode("system")
@@ -335,7 +410,7 @@ class App:
         return closing(db.connect(self.cfg.db_path))
 
     def load(self, tab: int, force: bool = False) -> None:
-        if tab in self.loading or (tab in self.data and not force):
+        if tab == CHAT or tab in self.loading or (tab in self.data and not force):
             return
         self.loading.add(tab)
 
@@ -386,9 +461,13 @@ class App:
     def suspend(self, fn) -> None:
         curses.def_prog_mode()
         curses.endwin()
+        # Ctrl-C reaches the whole foreground group: let the child (claude, gh) handle it,
+        # and don't die with it. A Python handler, unlike SIG_IGN, is reset for the child at exec.
+        previous = signal.signal(signal.SIGINT, lambda *_: None)
         try:
             fn()
         finally:
+            signal.signal(signal.SIGINT, previous)
             curses.reset_prog_mode()
             self.scr.refresh()
             self.reload_all()
@@ -461,6 +540,10 @@ class App:
         # body
         lines, rows = self.body(w - 4)
         top, height = 4, h - 7
+        if self.tab == CHAT:
+            bottom = max(0, len(lines) - height)
+            if self.chat_follow or self.scroll[CHAT] >= bottom:
+                self.scroll[CHAT], self.chat_follow = bottom, True
         span = self._span(lines, rows)
         if span:
             if span[0] < self.scroll[self.tab]:
@@ -484,7 +567,9 @@ class App:
         # footer: message or progress, then key hints (? and q always visible)
         self.put(h - 3, 0, "─" * (w - (cells(shown) + 3 if len(lines) > height else 0)), "faint")
         busy = self.job and self.job.is_alive()
-        if busy or self.tab in self.loading:
+        if self.tab == CHAT and self.chat_job and self.chat_job.is_alive() and not busy:
+            self.put(h - 2, 2, "answering… x stops it", "dim")
+        elif busy or self.tab in self.loading:
             spin = SPINNER[int(time.time() * 8) % len(SPINNER)]
             self.put(h - 2, 2, f"{spin} {self.job_label if busy else 'loading ' + TABS[self.tab].lower() + '…'}", "accent")
         elif self.message:
@@ -505,6 +590,8 @@ class App:
             self.scr.refresh()
 
     def body(self, width: int) -> tuple[list[Line], list[int]]:
+        if self.tab == CHAT:
+            return render_chat(self.chat, width, SPINNER[int(time.time() * 8) % len(SPINNER)]), []
         data = self.data.get(self.tab)
         if data is None:
             return [[("loading…", "dim")]], []
@@ -521,8 +608,9 @@ class App:
     def keys(self) -> list[tuple[str, str]]:
         extra = {1: [("⏎", "details"), ("a", "approve"), ("x", "reject"), ("A", "approve safe")],
                  2: [("⏎", "run now"), ("P", "pause/resume")],
-                 4: [("⏎", "fix"), ("e", "profile"), ("D", "deep check")]}.get(self.tab, [])
-        return extra + [("n", "note"), ("c", "check-in"), ("p", "plan"), ("s", "shutdown"), ("d", "diary"), ("b", "brief"),
+                 4: [("⏎", "fix"), ("e", "profile"), ("D", "deep check")],
+                 CHAT: [("⏎", "ask"), ("x", "stop / new chat"), ("↑↓", "scroll")]}.get(self.tab, [])
+        return extra + [("/", "chat"), ("n", "note"), ("c", "check-in"), ("p", "plan"), ("s", "shutdown"), ("d", "diary"), ("b", "brief"),
                         ("T", "theme"), ("t", "todo"), ("i", "idea"), ("r", "refresh")]
 
     # -- input
@@ -605,7 +693,11 @@ class App:
         argv = [claude, "--settings", str(self.cfg.claude_settings), "--model", self.cfg.model("interactive")]
         if not setup._plugin_installed():
             argv += ["--plugin-dir", str(self.cfg.plugin_dir)]
-        self.suspend(lambda: subprocess.call(argv + [command], cwd=self.cfg.home))
+        def launch():
+            print(f"\n  Opening Claude Code for your {name}. It asks before changing your calendar, Jira or notes.\n"
+                  "  Type /exit when you're done to come back to me.\n", flush=True)
+            subprocess.call(argv + [command], cwd=self.cfg.home)
+        self.suspend(launch)
         self.message = f"back from {name}"
 
     def setup_action(self, item: dict) -> None:
@@ -767,11 +859,60 @@ class App:
         self.put(y0 + bh - 2, x0 + 4, hint[: bw - 6], "dim", layer="bar")
         self.scr.refresh()
 
+    def chat_ask(self) -> None:
+        if self.chat_job and self.chat_job.is_alive():
+            self.message = "still answering; x stops it"
+            return
+        question = self.prompt("ask ›")
+        if not question:
+            return
+        self.chat.append({"role": "you", "text": question})
+        if wellbeing.CRISIS.search(question):
+            self.chat.append({"role": "note", "text": wellbeing.crisis_message(self.cfg)})
+        reply = {"role": "me", "text": "", "tools": [], "status": "thinking"}
+        self.chat.append(reply)
+        self.chat_follow = True
+        self.chat_cancel = threading.Event()
+
+        def emit(event: dict) -> None:
+            if event.get("type") != "assistant":
+                return
+            for block in (event.get("message") or {}).get("content") or []:
+                if block.get("type") == "text" and block.get("text", "").strip():
+                    reply["text"] += ("\n\n" if reply["text"] else "") + block["text"].strip()
+                elif block.get("type") == "tool_use":
+                    reply["tools"].append(tool_label(block))
+
+        def work():
+            try:
+                r = ask.stream(self.cfg, question, None, self.chat_session, emit, cancel=self.chat_cancel)
+                if r.ok:
+                    self.chat_session = r.session_id or self.chat_session
+                    reply["cost"] = r.cost_usd
+                    reply["text"] = reply["text"] or r.text
+                else:
+                    reply["error"] = r.error or "no answer"
+            except Exception as e:  # noqa: BLE001 - show it in the transcript
+                reply["error"] = str(e)
+            finally:
+                reply["status"] = "done"
+
+        self.chat_job = threading.Thread(target=work, daemon=True)
+        self.chat_job.start()
+
+    def chat_stop_or_clear(self) -> None:
+        if self.chat_job and self.chat_job.is_alive():
+            self.chat_cancel.set()
+            self.message = "stopped"
+        else:
+            self.chat, self.chat_session, self.chat_follow = [], None, True
+            self.message = "new chat"
+
     def handle(self, ch) -> bool:
         tab = self.tab
         if ch in ("q", "Q"):
             return False
-        if ch in ("1", "2", "3", "4", "5"):
+        if ch in ("1", "2", "3", "4", "5", "6"):
             self.tab = int(ch) - 1
         elif ch in ("\t", curses.KEY_RIGHT):
             self.tab = (self.tab + 1) % len(TABS)
@@ -782,8 +923,9 @@ class App:
             self._clamp()
         elif ch in (curses.KEY_UP, "k"):
             self.sel[tab] = max(0, self.sel[tab] - 1)
-            if tab in (0, 3):
+            if tab in (0, 3, CHAT):
                 self.scroll[tab] = max(0, self.scroll[tab] - 1)
+                self.chat_follow = self.chat_follow and tab != CHAT
         elif ch == "r":
             self.load(tab, force=True)
             self.message = "refreshing"
@@ -799,6 +941,12 @@ class App:
             self.appearance()
         elif ch == "?":
             self.show_text("Keys", HELP)
+        elif ch == "/" or (tab == CHAT and ch in ("\n", "\r", curses.KEY_ENTER)):
+            self.tab = CHAT
+            self.draw()
+            self.chat_ask()
+        elif tab == CHAT and ch == "x":
+            self.chat_stop_or_clear()
         elif ch in ("\n", "\r", curses.KEY_ENTER):
             self.enter()
         elif tab == 1 and ch in ("a", "x", "A"):
@@ -903,5 +1051,8 @@ def main(start: str = "Today") -> int:
     start_tab = TABS.index(start) if start in TABS else 0
     if start_tab == 0 and not setup.profile(cfg)["name"]:
         start_tab = TABS.index("Setup")  # first run: start where it matters
-    curses.wrapper(lambda scr: App(scr, cfg, start_tab).loop())
+    try:
+        curses.wrapper(lambda scr: App(scr, cfg, start_tab).loop())
+    except KeyboardInterrupt:  # Ctrl-C means quit, not a traceback
+        pass
     return 0
