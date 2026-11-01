@@ -1,6 +1,6 @@
 # Obsidian plugin ↔ harness contract
 
-The plugin never talks to Claude directly. It spawns the `me` CLI, using an absolute path from the plugin settings, because Obsidian launched from the Dock doesn't inherit the shell PATH.
+The plugin never talks to Claude directly. It spawns the `me` CLI, using an absolute path from the plugin settings, because Obsidian launched from the Dock, Start menu or a launcher doesn't inherit the shell PATH.
 
 ## Streaming chat
 

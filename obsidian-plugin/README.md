@@ -19,7 +19,7 @@ A sidebar assistant for Obsidian, backed by the local `me` CLI (which wraps Clau
   - **Show today's brief**: runs `me brief --if-stale`, then `me today`, and shows the result.
 - **Settings:**
   - the absolute path to `me`, with a Test button that runs `me --help`;
-  - an extra PATH prefix, so `me` can find `claude` and `gh`. Obsidian started from the Dock doesn't inherit your shell PATH.
+  - an extra PATH prefix, so `me` can find `claude` and `gh`. Obsidian started from the Dock, Start menu or a launcher doesn't inherit your shell PATH. The defaults point at `~/.local/bin`, where the installer puts `me` on every system.
 
 ## Privacy
 

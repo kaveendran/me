@@ -1,19 +1,23 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
+import * as os from "os";
 import * as path from "path";
 import { succeeded } from "./cli";
 import { failureMessage } from "./parse";
 import type MeHarnessPlugin from "./main";
 
 export interface MeSettings {
-  /** Absolute path to the `me` CLI. Obsidian launched from the Dock doesn't inherit the shell PATH. */
+  /** Absolute path to the `me` CLI. Obsidian started from the Dock, Start menu or a launcher doesn't inherit the shell PATH. */
   mePath: string;
   /** Prepended to PATH for spawned processes so `me` can find `claude` and `gh`. */
   pathPrefix: string;
 }
 
+/** Where the installer puts `me` (and uv, gh, claude): ~/.local/bin on every system. */
+const LOCAL_BIN = path.join(os.homedir(), ".local", "bin");
+
 export const DEFAULT_SETTINGS: MeSettings = {
-  mePath: "/Users/sabesonk/.local/bin/me",
-  pathPrefix: "/Users/sabesonk/.local/bin:/opt/homebrew/bin",
+  mePath: path.join(LOCAL_BIN, process.platform === "win32" ? "me.exe" : "me"),
+  pathPrefix: [LOCAL_BIN, ...(process.platform === "darwin" ? ["/opt/homebrew/bin", "/usr/local/bin"] : [])].join(path.delimiter),
 };
 
 export class MeSettingTab extends PluginSettingTab {
@@ -28,7 +32,7 @@ export class MeSettingTab extends PluginSettingTab {
     let status: HTMLElement | null = null;
     const setting = new Setting(containerEl)
       .setName("Path to me")
-      .setDesc("Absolute path to the me CLI. Obsidian started from the Dock doesn't see your shell PATH.")
+      .setDesc("Absolute path to the me CLI. Obsidian started from the Dock, Start menu or a launcher doesn't see your shell PATH.")
       .addText((text) =>
         text
           .setPlaceholder(DEFAULT_SETTINGS.mePath)
@@ -58,7 +62,7 @@ export class MeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Extra PATH prefix")
-      .setDesc("Prepended to PATH for spawned processes, so me can find claude and gh. Colon-separated.")
+      .setDesc(`Prepended to PATH for spawned processes, so me can find claude and gh. Separate folders with ${path.delimiter}`)
       .addText((text) =>
         text
           .setPlaceholder(DEFAULT_SETTINGS.pathPrefix)
