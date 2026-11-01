@@ -48,7 +48,7 @@ Autonomy is set in `autonomy.toml`: housekeeping runs automatically, and anythin
 
 `me` with no arguments opens the terminal UI:
 - **Tabs:** Today, Approvals, Agents, Wellbeing, Setup.
-- **Keys:** `n`/`t`/`i` capture, `c` check-in, `p` plan, `s` shutdown, `d` diary, `b` brief, `a`/`x` approve or reject. Everything else is a command:
+- **Keys:** `n`/`t`/`i` capture, `c` check-in, `p` plan, `s` shutdown, `d` diary, `b` brief, `a`/`x` approve or reject, `T` appearance, `?` every key. Everything else is a command:
 
 ```sh
 me plan              # morning planning session (Top 3, focus blocks, Jira, approvals)
@@ -61,6 +61,31 @@ me diary
 ```
 
 Inside Claude Code: `/me:plan`, `/me:shutdown`, `/me:brief`, `/me:approvals`, `/me:ask`, `/me:wiki`, `/me:checkin`, `/me:review`, `/me:note`, `/me:todo`, `/me:idea`, `/me:diary`.
+
+## Themes and adaptive colours
+
+Both UIs share one palette engine. Pick a theme in the terminal UI (`T`), in Mission Control (**Appearance**), or with `me theme`:
+
+```sh
+me theme                 # current theme, and the state your day is in right now
+me theme list            # aurora · graphite · fjord · ember · orchid
+me theme set graphite
+me theme mode dark       # system | dark | light
+me theme adaptive off    # keep the theme's own accent all day
+me theme accent '#e0457b'  # your own accent for steady days ('none' to clear)
+```
+
+With **adaptive** on (the default), the colours follow your workload and how you feel:
+
+| State | When | Look |
+|---|---|---|
+| Take it easy | a check-in in the last 6h with mood ≤ 2 or stress ≥ 4, or a high load score | soft lavender, low saturation, no glow |
+| Off hours | weekends and outside `work_hours` | warm and dim |
+| Busy | elevated load, or 100+ minutes without a break | amber |
+| In flow | light load and a good mood or energy check-in | emerald |
+| Steady | anything else | the theme's own accent |
+
+How you feel outranks the clock, and the clock outranks workload. Heavy days get calmer, never alarm red. The reasons are always shown (top bar in the terminal, the state pill in Mission Control). Every palette is checked for readable contrast (4.5:1) in tests.
 
 ## Extras
 

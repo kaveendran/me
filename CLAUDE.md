@@ -32,6 +32,7 @@ The full plan is in `~/.claude/plans/dont-consider-the-cost-swirling-plum.md`. U
 | approvals | `me proposals [list\|show\|approve\|reject <id>\|approve-safe] [--all]` |
 | memory | `me memory update\|setup\|search …`, `me wiki`, `me ask [--stream\|--json --mode links\|tasks\|summary] [--note P] [--session S] "…"` |
 | sheets / phone / UI | `me sheets init\|sync\|status`, `me notify-test`, `me serve`, `me wins` |
+| appearance | `me theme [list\|set NAME\|mode system\|dark\|light\|adaptive on\|off\|accent HEX\|none]` |
 
 Plugin skills: `/me:plan`, `/me:shutdown`, `/me:brief`, `/me:approvals`, `/me:ask`, `/me:wiki`, `/me:checkin`, `/me:review`, `/me:note`, `/me:todo`, `/me:idea`, `/me:diary`.
 
@@ -44,7 +45,8 @@ Plugin skills: `/me:plan`, `/me:shutdown`, `/me:brief`, `/me:approvals`, `/me:as
 - `notify.py`: ntfy push (quiet hours, daily cap, once-per-day, `force`) and the signed reply listener. `server.py`: the Mission Control API (contract in `docs/mission-control-api.md`), SSE chat, static `ui/dist`, token and Host checks.
 - `memory.py`: snapshot-commit the private vault, then OpenWiki init/update through the openwiki skill in headless Claude. Also code wikis, and `search`. `ask.py`: read-only Q&A (contract in `docs/obsidian-plugin.md`).
 - `setup.py`: the onboarding engine behind `me setup` (TUI) and Mission Control's Setup screen. Items have a status and an optional action (`run`, `confirm`, `terminal` or `link`). The profile is written into me.toml. Connector status comes from the session-init `mcp_servers` list (`claude.mcp_servers`, which costs nothing). claude.ai connector tools load lazily, so never check them by tool name.
-- `tui.py`: the curses terminal UI. Pure `render_*` functions are tested; background threads load data and run jobs; only the main thread draws.
+- `tui.py`: the curses terminal UI. Pure `render_*` functions are tested; background threads load data and run jobs; only the main thread draws. Modal input goes through `read_key()` (the main loop's 250ms timeout makes a bare `get_wch` raise).
+- `theme.py`: one OKLCH palette engine for both UIs. Themes (`[theme]` in me.toml) plus an adaptive state from `choose()`: how the user feels (check-ins in the last 6h) outranks the clock, which outranks workload. Calm states (`strained`, `rest`) lower saturation and drop glow; never use alarm red for load. Mission Control applies `GET /api/theme` palettes as CSS custom properties; the TUI maps them to xterm-256 (8-colour fallback). Tests require 4.5:1 contrast for every theme × state × mode.
 - `activity.py`: Claude Code time and work stretches from `~/.claude/projects/*/*.jsonl`.
 - Settings files:
   - Headless runs use `config/claude-headless.json` (deny rules, memory plugins off) with explicit `--allowedTools`.
