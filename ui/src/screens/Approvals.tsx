@@ -1,7 +1,7 @@
 import { useState, type ReactElement } from "react";
 import { api, type Proposal, type ProposalsResponse } from "../api";
 import { IconApprovals, IconCheck, IconShield, IconX } from "../components/Icons";
-import { Card, Empty, ErrorState, ExtLink, Loading, PageHead, RefreshButton, Spinner, Ticks } from "../components/ui";
+import { Card, Empty, ErrorState, ExtLink, PageHead, RefreshButton, SkeletonCard, Spinner, Ticks } from "../components/ui";
 import { useAppData } from "../data";
 import { absTime, plural, relTime } from "../format";
 import { useResource, type Resource } from "../hooks";
@@ -47,7 +47,7 @@ function ProposalCard({
         <code className="proposal-action">{p.action}</code>
         {p.safe ? (
           <span className="tag tag-safe" title="Reversible and private: can be batch-approved">
-            <IconShield size={12} /> safe
+            <IconShield size={11} /> safe
           </span>
         ) : null}
         {shownStatus !== "pending" ? (
@@ -86,11 +86,11 @@ function ProposalCard({
       {isPending ? (
         <div className="proposal-actions">
           <button type="button" className="btn btn-primary" onClick={onApprove} disabled={!!busy || locked}>
-            {busy === "approve" ? <Spinner size={14} /> : <IconCheck size={15} />}
+            {busy === "approve" ? <Spinner size={13} /> : <IconCheck size={14} />}
             {busy === "approve" ? "Approving…" : "Approve"}
           </button>
           <button type="button" className="btn btn-ghost" onClick={onReject} disabled={!!busy || locked}>
-            {busy === "reject" ? <Spinner size={14} /> : <IconX size={15} />}
+            {busy === "reject" ? <Spinner size={13} /> : <IconX size={14} />}
             Reject
           </button>
           {busy === "approve" ? (
@@ -206,19 +206,20 @@ function ProposalsView({ res, filter }: { res: Resource<ProposalsResponse>; filt
           onClick={() => void approveSafe()}
           disabled={batch || safePending.length === 0}
         >
-          {batch ? <Spinner size={14} /> : <IconShield size={15} />}
+          {batch ? <Spinner size={13} /> : <IconShield size={14} />}
           {batch ? "Approving safe…" : `Approve all safe (${safePending.length})`}
         </button>
         <RefreshButton onClick={() => void res.refresh()} busy={res.refreshing} />
       </div>
       {res.error ? <ErrorState compact error={res.error} onRetry={() => void res.refresh()} /> : null}
       {res.loading ? (
-        <Card>
-          <Loading rows={4} />
-        </Card>
+        <div className="proposal-list">
+          <SkeletonCard rows={2} />
+          <SkeletonCard rows={2} />
+        </div>
       ) : list.length === 0 && !res.error ? (
         <Card>
-          <Empty icon={<IconApprovals size={20} />}>
+          <Empty icon={<IconApprovals size={16} />}>
             {filter === "pending" ? "Nothing waiting for you. Agents will queue anything that needs a yes." : "No proposals yet."}
           </Empty>
         </Card>

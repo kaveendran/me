@@ -130,37 +130,6 @@ export function useHashRoute<R extends string>(routes: readonly R[], fallback: R
   return [route, go];
 }
 
-export type ThemePref = "system" | "light" | "dark";
-const THEME_KEY = "me-theme";
-
-function readTheme(): ThemePref {
-  try {
-    const v = window.localStorage.getItem(THEME_KEY);
-    return v === "light" || v === "dark" ? v : "system";
-  } catch {
-    return "system";
-  }
-}
-
-export function useTheme(): [ThemePref, () => void] {
-  const [pref, setPref] = useState<ThemePref>(readTheme);
-  useEffect(() => {
-    const root = document.documentElement;
-    if (pref === "system") root.removeAttribute("data-theme");
-    else root.setAttribute("data-theme", pref);
-    try {
-      if (pref === "system") window.localStorage.removeItem(THEME_KEY);
-      else window.localStorage.setItem(THEME_KEY, pref);
-    } catch {
-      /* storage unavailable: the choice lasts for this session only */
-    }
-  }, [pref]);
-  const cycle = useCallback(() => {
-    setPref((p) => (p === "system" ? "light" : p === "light" ? "dark" : "system"));
-  }, []);
-  return [pref, cycle];
-}
-
 /** True when the viewport matches the media query. */
 export function useMedia(query: string): boolean {
   const [match, setMatch] = useState(() => window.matchMedia(query).matches);

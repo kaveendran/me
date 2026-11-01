@@ -92,13 +92,13 @@ export function MemoryScreen() {
         sub="Search people, projects and decisions from your private vault."
         actions={
           <button type="button" className="btn" onClick={() => void openGraph()} disabled={viz === "busy"}>
-            {viz === "busy" ? <Spinner size={14} /> : <IconMemory size={16} />}
+            {viz === "busy" ? <Spinner size={13} /> : <IconMemory size={15} />}
             Open memory graph
           </button>
         }
       />
       {vizUrl ? (
-        <p className="small muted">
+        <p className="viz-link muted">
           Memory graph:{" "}
           <a href={vizUrl} target="_blank" rel="noopener noreferrer">
             {vizUrl}
@@ -113,7 +113,7 @@ export function MemoryScreen() {
           void search(q);
         }}
       >
-        <IconSearch size={18} />
+        <IconSearch size={17} />
         <label htmlFor="mem-q" className="sr-only">
           Search memory
         </label>
@@ -132,9 +132,9 @@ export function MemoryScreen() {
 
       {wikiMissing ? (
         <Card>
-          <Empty icon={<IconMemory size={20} />}>
+          <Empty icon={<IconMemory size={16} />}>
             <strong>Memory isn't built yet.</strong>
-            <div className="muted">
+            <div className="small">
               It's generated nightly from your private vault. Check back tomorrow morning, or run the memory agent from the
               Agents screen.
             </div>
@@ -157,12 +157,12 @@ export function MemoryScreen() {
           </ul>
         ) : (
           <Card>
-            <Empty>No matches for "{searched}". Try a shorter or different word.</Empty>
+            <Empty icon={<IconSearch size={16} />}>No matches for "{searched}". Try a shorter or different word.</Empty>
           </Card>
         )
       ) : !error ? (
         <Card>
-          <Empty icon={<IconSearch size={20} />}>Type at least two characters to search.</Empty>
+          <Empty icon={<IconSearch size={16} />}>Type at least two characters to search.</Empty>
         </Card>
       ) : null}
     </>

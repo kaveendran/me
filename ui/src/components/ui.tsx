@@ -1,6 +1,6 @@
 import { Fragment, type ReactNode } from "react";
 import { ApiError, SERVER_DOWN_HINT } from "../api";
-import { IconAlert, IconExternal, IconRefresh } from "./Icons";
+import { IconAlert, IconExternal, IconInbox, IconRefresh } from "./Icons";
 
 export function Spinner({ size = 16, label }: { size?: number; label?: string }) {
   return (
@@ -44,21 +44,74 @@ export function Card({
 
 export function Loading({ label = "Loading…", rows = 3 }: { label?: string; rows?: number }) {
   return (
-    <div className="loading" aria-busy="true">
+    <div className="loading" aria-busy="true" role="status">
       <span className="sr-only">{label}</span>
       {Array.from({ length: rows }, (_, i) => (
-        <div key={i} className="skeleton" style={{ width: `${88 - i * 14}%` }} />
+        <div key={i} className="skel-row">
+          <span className="skeleton skel-dot" />
+          <span className="skel-lines">
+            <span className="skeleton" style={{ width: `${82 - ((i * 23) % 36)}%` }} />
+            <span className="skeleton skel-sub" style={{ width: `${48 - ((i * 13) % 22)}%` }} />
+          </span>
+        </div>
       ))}
     </div>
   );
 }
 
+/** A card-shaped placeholder: a title bar and a few skeleton rows. */
+export function SkeletonCard({ rows = 3, className = "" }: { rows?: number; className?: string }) {
+  return (
+    <section className={`card ${className}`} aria-busy="true">
+      <header className="card-head">
+        <span className="skeleton skel-title" />
+      </header>
+      <Loading rows={rows} />
+    </section>
+  );
+}
+
+/** Friendly empty state: an icon and one line (a second, muted line is fine). */
 export function Empty({ children, icon }: { children: ReactNode; icon?: ReactNode }) {
   return (
     <div className="empty">
-      {icon ? <span className="empty-icon">{icon}</span> : null}
-      <div>{children}</div>
+      <span className="empty-icon" aria-hidden="true">
+        {icon ?? <IconInbox size={16} />}
+      </span>
+      <div className="empty-text">{children}</div>
     </div>
+  );
+}
+
+export function Switch({
+  checked,
+  onChange,
+  label,
+  disabled,
+  id,
+  describedBy,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+  disabled?: boolean;
+  id?: string;
+  describedBy?: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      id={id}
+      className="switch"
+      aria-checked={checked}
+      aria-label={label}
+      aria-describedby={describedBy}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+    >
+      <span className="switch-thumb" aria-hidden="true" />
+    </button>
   );
 }
 

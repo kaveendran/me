@@ -346,6 +346,70 @@ export interface SetupRunResponse {
   detail: string;
 }
 
+// ----- Theme (colours, and the adaptive accent) -----
+
+export type ThemeMode = "system" | "dark" | "light";
+export type ResolvedMode = "dark" | "light";
+
+/** Adaptive state ids, in display order. Kept open (string) on the wire for forward compatibility. */
+export const STATE_IDS = ["flow", "steady", "busy", "strained", "rest"] as const;
+export type StateId = (typeof STATE_IDS)[number];
+
+export interface ThemePrefs {
+  name: string;
+  mode: ThemeMode;
+  adaptive: boolean;
+  accent: string; // "#rrggbb" or "" for the theme's own
+}
+
+export interface ThemeLiveState {
+  id: string;
+  label: string;
+  message: string;
+  reasons: string[];
+  calm: boolean;
+  load: number;
+  band: LoadBand;
+}
+
+export interface ThemeApplied {
+  id: string;
+  calm: boolean;
+  preview: boolean;
+}
+
+/** Palette keys map 1:1 to CSS custom properties: `bg` -> `--bg`. */
+export type Palette = Record<string, string>;
+
+export interface ThemeInfo {
+  id: string;
+  label: string;
+  description: string;
+  /** `[bg, surface, accent, accent-2]` for the theme's own (steady) look. */
+  swatches: Record<ResolvedMode, string[]>;
+}
+
+export interface StateInfo {
+  id: string;
+  label: string;
+  message: string;
+  calm: boolean;
+}
+
+export interface ThemeSnapshot {
+  prefs: ThemePrefs;
+  state: ThemeLiveState;
+  applied: ThemeApplied;
+  palette: Record<ResolvedMode, Palette>;
+  themes: ThemeInfo[];
+  states: StateInfo[];
+}
+
+export type ThemeBody = Partial<ThemePrefs>;
+
+/** Fired on `window` after a check-in is saved; mood changes the adaptive state. */
+export const CHECKIN_EVENT = "me:checkin";
+
 export type ChatEvent =
   | { type: "text"; text: string }
   | { type: "tool"; name: string }
@@ -465,7 +529,11 @@ export const api = {
 
   wellbeing: (signal?: AbortSignal) => request<Wellbeing>("/api/wellbeing", { signal }),
 
-  checkin: (body: CheckinBody) => request<CheckinResponse>("/api/checkin", { method: "POST", body }),
+  checkin: async (body: CheckinBody) => {
+    const res = await request<CheckinResponse>("/api/checkin", { method: "POST", body });
+    window.dispatchEvent(new Event(CHECKIN_EVENT));
+    return res;
+  },
 
   note: (kind: NoteKind, text: string) => request<NoteResponse>("/api/note", { method: "POST", body: { kind, text } }),
 
@@ -484,6 +552,13 @@ export const api = {
   // Some actions take up to 30 s.
   setupRun: (actionId: string) =>
     request<SetupRunResponse>(`/api/setup/run/${enc(actionId)}`, { method: "POST", timeoutMs: 90_000 }),
+
+  /** `preview` resolves the palette for that state without saving anything. */
+  theme: (preview?: string | null, signal?: AbortSignal) =>
+    request<ThemeSnapshot>(preview ? `/api/theme?preview=${enc(preview)}` : "/api/theme", { signal }),
+
+  /** Saves any of the prefs to me.toml and returns the fresh snapshot. */
+  saveTheme: (body: ThemeBody) => request<ThemeSnapshot>("/api/theme", { method: "POST", body }),
 
   /** URL for the SSE chat stream. EventSource can't send headers, so the token rides in the query. */
   chatUrl: (q: string, session?: string | null): string => {

@@ -51,18 +51,30 @@ export function Sparkline({ title, yLabel, points, domain, format, note }: Props
   const x = (i: number) => PAD.left + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
   const y = (v: number) => PAD.top + innerH - ((Math.min(hi, Math.max(lo, v)) - lo) / (hi - lo || 1)) * innerH;
 
-  // Break the line at missing days.
+  // Break the line at missing days; each run also gets a soft area under it.
   const segments: string[] = [];
+  const areas: string[] = [];
+  const base = (PAD.top + innerH).toFixed(1);
   let cur = "";
+  let first = -1;
+  let prev = -1;
+  const close = () => {
+    if (!cur) return;
+    segments.push(cur);
+    if (prev > first) areas.push(`${cur}L${x(prev).toFixed(1)},${base}L${x(first).toFixed(1)},${base}Z`);
+  };
   points.forEach((p, i) => {
     if (p.value == null) {
-      if (cur) segments.push(cur);
+      close();
       cur = "";
       return;
     }
+    if (!cur) first = i;
+    prev = i;
     cur += `${cur ? "L" : "M"}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`;
   });
-  if (cur) segments.push(cur);
+  close();
+  const gradId = `${labelId.replace(/[^a-zA-Z0-9_-]/g, "")}-area`;
 
   const values = points.map((p) => p.value).filter((v): v is number => v != null);
   const avg = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
@@ -147,9 +159,21 @@ export function Sparkline({ title, yLabel, points, domain, format, note }: Props
         </span>
         <svg width={width} height={H} aria-hidden="true" focusable="false">
           {/* y axis grid + tick labels */}
+          <defs>
+            <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" className="spark-area-top" />
+              <stop offset="1" className="spark-area-bottom" />
+            </linearGradient>
+          </defs>
           {ticks.map((t, i) => (
             <g key={i}>
-              <line className="spark-grid" x1={PAD.left} x2={PAD.left + innerW} y1={y(t)} y2={y(t)} />
+              <line
+                className={`spark-grid ${i === ticks.length - 1 ? "is-base" : ""}`}
+                x1={PAD.left}
+                x2={PAD.left + innerW}
+                y1={y(t)}
+                y2={y(t)}
+              />
               <text className="spark-tick" x={PAD.left - 6} y={y(t)} dy="0.32em" textAnchor="end">
                 {format(t)}
               </text>
@@ -169,6 +193,9 @@ export function Sparkline({ title, yLabel, points, domain, format, note }: Props
           {active != null ? (
             <line className="spark-cross" x1={x(active)} x2={x(active)} y1={PAD.top} y2={PAD.top + innerH} />
           ) : null}
+          {areas.map((d, i) => (
+            <path key={`a${i}`} d={d} fill={`url(#${gradId})`} />
+          ))}
           {segments.map((d, i) => (
             <path key={i} className="spark-line" d={d} />
           ))}
@@ -179,7 +206,7 @@ export function Sparkline({ title, yLabel, points, domain, format, note }: Props
                 className={`spark-dot ${i === lastIdx ? "is-last" : ""} ${i === active ? "is-active" : ""}`}
                 cx={x(i)}
                 cy={y(p.value)}
-                r={i === active ? 5.5 : i === lastIdx ? 4.5 : 3.5}
+                r={i === active ? 4.5 : i === lastIdx ? 3.5 : 2.25}
               />
             ),
           )}

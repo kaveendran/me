@@ -2,8 +2,8 @@ import { api, type Load, type WellbeingDay } from "../api";
 import { BAND_LABEL, bandOf } from "../components/LoadBadge";
 import { MoodCheckin } from "../components/MoodCheckin";
 import { Sparkline, type Point } from "../components/Sparkline";
-import { IconSpark } from "../components/Icons";
-import { Card, Empty, ErrorState, Loading, PageHead, RefreshButton } from "../components/ui";
+import { IconSpark, IconTrophy, IconWellbeing } from "../components/Icons";
+import { Card, Empty, ErrorState, PageHead, RefreshButton, SkeletonCard } from "../components/ui";
 import { clockTime, shortDate } from "../format";
 import { useResource } from "../hooks";
 
@@ -17,7 +17,7 @@ function LoadToday({ load }: { load: Load | null }) {
   if (!load) {
     return (
       <Card title="Today's load" id="load">
-        <Empty>No load score yet today. It appears after the morning brief.</Empty>
+        <Empty icon={<IconWellbeing size={16} />}>No load score yet today. It appears after the morning brief.</Empty>
       </Card>
     );
   }
@@ -81,13 +81,12 @@ export function WellbeingScreen() {
       />
       {res.error ? <ErrorState compact={!!w} error={res.error} onRetry={() => void res.refresh()} /> : null}
       {res.loading ? (
-        <div className="grid-2">
-          <Card>
-            <Loading rows={3} />
-          </Card>
-          <Card>
-            <Loading rows={3} />
-          </Card>
+        <div className="stack">
+          <div className="grid-2">
+            <SkeletonCard rows={2} />
+            <SkeletonCard rows={2} />
+          </div>
+          <SkeletonCard rows={3} />
         </div>
       ) : w ? (
         <div className="stack">
@@ -148,7 +147,7 @@ export function WellbeingScreen() {
                 />
               </div>
             ) : (
-              <Empty>Trends appear after a few days of check-ins.</Empty>
+              <Empty icon={<IconSpark size={16} />}>Trends appear after a few days of check-ins.</Empty>
             )}
           </Card>
 
@@ -164,7 +163,7 @@ export function WellbeingScreen() {
                   ))}
                 </ul>
               ) : (
-                <Empty>The jar is empty for now. Small wins count too.</Empty>
+                <Empty icon={<IconTrophy size={16} />}>The jar is empty for now. Small wins count too.</Empty>
               )}
             </Card>
             <Card title="This week's experiment" id="exp">
@@ -174,7 +173,7 @@ export function WellbeingScreen() {
                   <p>{w.experiment}</p>
                 </div>
               ) : (
-                <Empty>No experiment this week. Your weekly review can suggest one.</Empty>
+                <Empty icon={<IconSpark size={16} />}>No experiment this week. Your weekly review can suggest one.</Empty>
               )}
             </Card>
           </div>

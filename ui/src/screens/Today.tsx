@@ -3,8 +3,9 @@ import { api, type CalEvent, type Today } from "../api";
 import { LoadBadge } from "../components/LoadBadge";
 import { MoodCheckin } from "../components/MoodCheckin";
 import { Timeline } from "../components/Timeline";
-import { IconAlert, IconCheck, IconClock, IconSun } from "../components/Icons";
-import { Card, Empty, ErrorState, ExtLink, Loading, PageHead, RefreshButton, Spinner, Ticks } from "../components/ui";
+import { IconAlert, IconCalendar, IconCheck, IconClock, IconFlag, IconSun, IconTarget } from "../components/Icons";
+import { StateBanner } from "../components/StateIndicator";
+import { Card, Empty, ErrorState, ExtLink, PageHead, RefreshButton, SkeletonCard, Spinner, Ticks } from "../components/ui";
 import { useAppData } from "../data";
 import { countdown, duration, errText, hmToMin, localDate, nowMin, plural, shortDate } from "../format";
 import { useMedia, useNow } from "../hooks";
@@ -20,7 +21,7 @@ function NextMeeting({ events, tomorrow, isToday }: { events: CalEvent[]; tomorr
   if (!isToday) {
     return (
       <Card title="Next meeting" id="next">
-        <Empty icon={<IconClock size={18} />}>This brief isn't from today, so there's no live countdown.</Empty>
+        <Empty icon={<IconClock size={16} />}>This brief isn't from today, so there's no live countdown.</Empty>
       </Card>
     );
   }
@@ -64,10 +65,10 @@ function NextMeeting({ events, tomorrow, isToday }: { events: CalEvent[]; tomorr
           ) : null}
         </div>
       ) : (
-        <Empty icon={<IconCheck size={18} />}>
-          {live ? "Nothing after this one today." : "No more meetings today."}
+        <Empty icon={<IconCheck size={16} />}>
+          <span className="empty-lead">{live ? "Nothing after this one today." : "No more meetings today."}</span>
           {firstTomorrow ? (
-            <div className="muted small">
+            <div className="small">
               Tomorrow starts with {firstTomorrow.title} at {firstTomorrow.start}.
             </div>
           ) : null}
@@ -82,7 +83,7 @@ function Top3({ today }: { today: Today }) {
   if (plan && plan.top3.length > 0) {
     const done = plan.top3.filter((t) => t.done).length;
     return (
-      <Card title="Top 3" id="top3" action={<span className="muted small">{done}/{plan.top3.length} done</span>}>
+      <Card title="Top 3" id="top3" action={<span className="card-meta">{done}/{plan.top3.length} done</span>}>
         <ol className="top3">
           {plan.top3.map((t, i) => (
             <li key={i} className={t.done ? "is-done" : ""}>
@@ -121,7 +122,7 @@ function Top3({ today }: { today: Today }) {
       action={
         proposed.length ? (
           <span className="tag tag-dim">
-            <Ticks text="proposed, run `me plan`" />
+            <Ticks text="Proposed · run `me plan`" />
           </span>
         ) : undefined
       }
@@ -139,7 +140,12 @@ function Top3({ today }: { today: Today }) {
                 </div>
                 {t.why ? <div className="muted small">{t.why}</div> : null}
                 <div className="top3-meta">
-                  {t.est_min ? <span className="tag">{duration(t.est_min)}</span> : null}
+                  {t.est_min ? (
+                    <span className="tag">
+                      <IconClock size={11} />
+                      {duration(t.est_min)}
+                    </span>
+                  ) : null}
                   {t.source ? <span className="tag tag-dim">{t.source}</span> : null}
                 </div>
               </div>
@@ -147,7 +153,7 @@ function Top3({ today }: { today: Today }) {
           ))}
         </ol>
       ) : (
-        <Empty>
+        <Empty icon={<IconTarget size={16} />}>
           No Top 3 yet. <Ticks text="Run `me plan` to pick them." />
         </Empty>
       )}
@@ -163,13 +169,13 @@ function FocusWindows({ today }: { today: Today }) {
     <Card
       title="Focus windows"
       id="focus"
-      action={fw.length ? <span className="muted small">{duration(total)} free</span> : undefined}
+      action={fw.length ? <span className="card-meta">{duration(total)} free</span> : undefined}
     >
       {fw.length ? (
         <ul className="focus-list">
           {fw.map((w, i) => (
             <li key={i}>
-              <span className="mono">
+              <span className="focus-time">
                 {w.start}–{w.end}
               </span>
               <span className="focus-bar" aria-hidden="true">
@@ -180,7 +186,7 @@ function FocusWindows({ today }: { today: Today }) {
           ))}
         </ul>
       ) : (
-        <Empty>No long gaps today. Short breaks still count.</Empty>
+        <Empty icon={<IconClock size={16} />}>No long gaps today. Short breaks still count.</Empty>
       )}
     </Card>
   );
@@ -199,7 +205,7 @@ function Risks({ today }: { today: Today }) {
           ))}
         </ul>
       ) : (
-        <Empty>Nothing flagged. Clear skies.</Empty>
+        <Empty icon={<IconFlag size={16} />}>Nothing flagged. Clear skies.</Empty>
       )}
     </Card>
   );
@@ -231,7 +237,7 @@ function MissingBrief({ onRan }: { onRan: () => void }) {
   return (
     <div className="card missing">
       <div className="missing-icon" aria-hidden="true">
-        <IconSun size={28} />
+        <IconSun size={20} />
       </div>
       <div className="missing-body">
         <h2>No brief yet today</h2>
@@ -257,6 +263,9 @@ function MissingBrief({ onRan }: { onRan: () => void }) {
 
 export function TodayScreen() {
   const { today, refreshAll } = useAppData();
+  const openAppearance = () => {
+    window.location.hash = "/appearance";
+  };
   const now = useNow(60_000);
   const wide = useMedia("(min-width: 1100px)");
   const t = today.data;
@@ -266,14 +275,16 @@ export function TodayScreen() {
   if (today.loading) {
     return (
       <>
-        <PageHead title="Today" />
-        <div className="grid-2">
-          <Card>
-            <Loading rows={4} />
-          </Card>
-          <Card>
-            <Loading rows={3} />
-          </Card>
+        <PageHead title="Today" sub={<span className="skeleton" style={{ width: 120 }} />} />
+        <div className="today-grid">
+          <div className="col">
+            <SkeletonCard rows={3} />
+            <SkeletonCard rows={2} />
+          </div>
+          <div className="col">
+            <SkeletonCard rows={1} />
+            <SkeletonCard rows={2} />
+          </div>
         </div>
       </>
     );
@@ -337,6 +348,7 @@ export function TodayScreen() {
     return (
       <>
         {header}
+        <StateBanner onAppearance={openAppearance} />
         {today.error ? <ErrorState compact error={today.error} onRetry={() => void today.refresh()} /> : null}
         <MissingBrief onRan={() => void refreshAll()} />
         <div className="grid-2">
@@ -353,12 +365,12 @@ export function TodayScreen() {
     <Card
       title="Schedule"
       id="schedule"
-      action={<span className="muted small">{duration(t.meeting_min)} in meetings</span>}
+      action={<span className="card-meta">{duration(t.meeting_min)} in meetings</span>}
     >
       {t.events.length || blocks.length ? (
         <Timeline events={t.events} blocks={blocks} now={now} isToday={isToday} />
       ) : (
-        <Empty icon={<IconSun size={18} />}>No meetings today. A wide-open day.</Empty>
+        <Empty icon={<IconCalendar size={16} />}>No meetings today. A wide-open day.</Empty>
       )}
     </Card>
   );
@@ -368,8 +380,9 @@ export function TodayScreen() {
   return (
     <>
       {header}
-      {today.error ? <ErrorState compact error={today.error} onRetry={() => void today.refresh()} /> : null}
       {headline}
+      <StateBanner onAppearance={openAppearance} />
+      {today.error ? <ErrorState compact error={today.error} onRetry={() => void today.refresh()} /> : null}
       {errorsBox}
       {wide ? (
         <div className="today-grid">

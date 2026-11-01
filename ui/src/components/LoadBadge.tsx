@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { Load, LoadBand } from "../api";
 
-export const BAND_LABEL: Record<LoadBand, string> = { ok: "steady", elevated: "elevated", high: "high" };
+export const BAND_LABEL: Record<LoadBand, string> = { ok: "normal", elevated: "elevated", high: "high" };
 
 export function bandOf(load: Load | null | undefined): LoadBand {
   const b = load?.band;
@@ -55,7 +55,7 @@ export function LoadBadge({ load }: { load: Load | null | undefined }) {
         <strong>{BAND_LABEL[band]}</strong>
         <span className="load-score">{Math.round(load.score)}</span>
       </button>
-      <div className="load-pop" id={id} role="tooltip" hidden={!open}>
+      <div className="popover load-pop" id={id} role="tooltip" hidden={!open}>
         <div className="load-pop-title">
           Load score {Math.round(load.score)} / 100
         </div>

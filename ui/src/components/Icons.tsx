@@ -167,3 +167,66 @@ export const IconPhone = (p: P) => (
     <path d="M11 18.5h2" />
   </Svg>
 );
+export const IconPalette = (p: P) => (
+  <Svg {...p}>
+    <path d="M12 3a9 9 0 0 0 0 18c1.1 0 1.8-.9 1.8-1.8 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-1 .8-1.8 1.8-1.8H16a5 5 0 0 0 5-5c0-3.9-4-7-9-7z" />
+    <circle cx="7.5" cy="11.5" r="1.1" fill="currentColor" stroke="none" />
+    <circle cx="10" cy="7.5" r="1.1" fill="currentColor" stroke="none" />
+    <circle cx="14.5" cy="7.5" r="1.1" fill="currentColor" stroke="none" />
+  </Svg>
+);
+export const IconInbox = (p: P) => (
+  <Svg {...p}>
+    <path d="M4 13l2.4-7.2A2 2 0 0 1 8.3 4.5h7.4a2 2 0 0 1 1.9 1.3L20 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" />
+    <path d="M4 13h4.5l1.5 2.5h4l1.5-2.5H20" />
+  </Svg>
+);
+export const IconChevronRight = (p: P) => (
+  <Svg {...p}>
+    <path d="M9.5 6l6 6-6 6" />
+  </Svg>
+);
+export const IconChevronDown = (p: P) => (
+  <Svg {...p}>
+    <path d="M6 9.5l6 6 6-6" />
+  </Svg>
+);
+export const IconArrowRight = (p: P) => (
+  <Svg {...p}>
+    <path d="M5 12h14M13 6l6 6-6 6" />
+  </Svg>
+);
+export const IconEye = (p: P) => (
+  <Svg {...p}>
+    <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" />
+    <circle cx="12" cy="12" r="2.8" />
+  </Svg>
+);
+export const IconCalendar = (p: P) => (
+  <Svg {...p}>
+    <rect x="3.5" y="5" width="17" height="15" rx="2" />
+    <path d="M3.5 10h17M8 3v4M16 3v4" />
+  </Svg>
+);
+export const IconTarget = (p: P) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="8.5" />
+    <circle cx="12" cy="12" r="4.5" />
+    <circle cx="12" cy="12" r="0.8" fill="currentColor" />
+  </Svg>
+);
+export const IconFlag = (p: P) => (
+  <Svg {...p}>
+    <path d="M5 21V4M5 4h11l-2 4 2 4H5" />
+  </Svg>
+);
+export const IconTrophy = (p: P) => (
+  <Svg {...p}>
+    <path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8.5 20h7M10 17h4" />
+  </Svg>
+);
+export const IconPlug = (p: P) => (
+  <Svg {...p}>
+    <path d="M9 3v5M15 3v5M7 8h10v3a5 5 0 0 1-10 0zM12 16v5" />
+  </Svg>
+);

@@ -12,11 +12,25 @@
     <link rel="apple-touch-icon" href="/icon.svg" />
     <title>me · Mission Control</title>
     <script>
-      // Apply a saved manual theme before first paint to avoid a flash.
-      try {
-        var t = localStorage.getItem("me-theme");
-        if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
-      } catch (e) {}
+      // Replay the last applied theme palette before first paint (src/theme.tsx keeps it fresh).
+      (function () {
+        try {
+          var c = JSON.parse(localStorage.getItem("me-theme-cache") || "null");
+          if (!c || c.v !== 1 || !c.palette) return;
+          var mode = c.mode === "dark" || c.mode === "light" ? c.mode
+            : window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+          var p = c.palette[mode];
+          if (!p) return;
+          var r = document.documentElement;
+          for (var k in p) if (/^[a-z0-9-]{1,40}$/.test(k) && typeof p[k] === "string") r.style.setProperty("--" + k, p[k]);
+          r.setAttribute("data-mode", mode);
+          r.setAttribute("data-state", c.state || "steady");
+          r.setAttribute("data-calm", c.calm ? "true" : "false");
+          r.style.colorScheme = mode;
+          var m = document.querySelector('meta[name="theme-color"]');
+          if (m && p.bg) m.setAttribute("content", p.bg);
+        } catch (e) {}
+      })();
     </script>
   </head>
   <body>

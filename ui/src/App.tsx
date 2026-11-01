@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
-import { ApiError, api, hasToken } from "./api";
-import { CommandBar, type BarMode } from "./components/CommandBar";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
+import { ApiError, api, hasToken, type ThemeMode } from "./api";
+import { CommandBar, type BarMode, type Command } from "./components/CommandBar";
 import {
   IconAgents,
   IconApprovals,
@@ -8,6 +8,7 @@ import {
   IconCommand,
   IconMemory,
   IconMoon,
+  IconPalette,
   IconSetup,
   IconSun,
   IconSystem,
@@ -15,30 +16,39 @@ import {
   IconWellbeing,
   IconWork,
 } from "./components/Icons";
+import { StatePill } from "./components/StateIndicator";
 import { Spinner, Ticks } from "./components/ui";
 import { useAppData } from "./data";
-import { useHashRoute, useTheme } from "./hooks";
+import { useHashRoute } from "./hooks";
 import { AgentsScreen } from "./screens/Agents";
+import { AppearanceScreen } from "./screens/Appearance";
 import { ApprovalsScreen } from "./screens/Approvals";
 import { MemoryScreen } from "./screens/Memory";
 import { SetupScreen } from "./screens/Setup";
 import { TodayScreen } from "./screens/Today";
 import { WellbeingScreen } from "./screens/Wellbeing";
 import { WorkScreen } from "./screens/Work";
+import { useTheme } from "./theme";
 import { useToast } from "./toast";
 
-const ROUTES = ["today", "approvals", "work", "agents", "wellbeing", "memory", "setup"] as const;
+const ROUTES = ["today", "approvals", "work", "agents", "wellbeing", "memory", "setup", "appearance"] as const;
 type Route = (typeof ROUTES)[number];
 
-const NAV: ReadonlyArray<{ id: Route; label: string; Icon: ComponentType<{ size?: number }> }> = [
-  { id: "today", label: "Today", Icon: IconToday },
-  { id: "approvals", label: "Approvals", Icon: IconApprovals },
-  { id: "work", label: "Work", Icon: IconWork },
-  { id: "agents", label: "Agents", Icon: IconAgents },
-  { id: "wellbeing", label: "Wellbeing", Icon: IconWellbeing },
-  { id: "memory", label: "Memory", Icon: IconMemory },
-  { id: "setup", label: "Setup", Icon: IconSetup },
+type NavId = Exclude<Route, "appearance">;
+const NAV: ReadonlyArray<{ id: NavId; label: string; Icon: ComponentType<{ size?: number }>; keywords: string }> = [
+  { id: "today", label: "Today", Icon: IconToday, keywords: "home brief schedule plan calendar" },
+  { id: "approvals", label: "Approvals", Icon: IconApprovals, keywords: "proposals queue approve reject" },
+  { id: "work", label: "Work", Icon: IconWork, keywords: "prs pull requests reviews jira ci issues" },
+  { id: "agents", label: "Agents", Icon: IconAgents, keywords: "runs schedule spend cost pause resume" },
+  { id: "wellbeing", label: "Wellbeing", Icon: IconWellbeing, keywords: "mood checkin check-in load energy wins" },
+  { id: "memory", label: "Memory", Icon: IconMemory, keywords: "search wiki notes people projects" },
+  { id: "setup", label: "Setup", Icon: IconSetup, keywords: "onboarding accounts connectors vaults phone" },
 ];
+
+const TITLES: Record<Route, string> = {
+  ...(Object.fromEntries(NAV.map((n) => [n.id, n.label])) as Record<NavId, string>),
+  appearance: "Appearance",
+};
 
 const SCREENS: Record<Route, ComponentType> = {
   today: TodayScreen,
@@ -48,6 +58,7 @@ const SCREENS: Record<Route, ComponentType> = {
   wellbeing: WellbeingScreen,
   memory: MemoryScreen,
   setup: SetupScreen,
+  appearance: AppearanceScreen,
 };
 
 // First run: open Setup instead of Today at most once per browser session.
@@ -70,11 +81,11 @@ function SetupBadge({ variant }: { variant: "nav" | "tab" }) {
   const { setup, setupOpen } = useAppData();
   const d = setup.data;
   if (!d) return null;
-  const cls = variant === "nav" ? "nav-badge" : "tab-badge";
+  const cls = variant === "nav" ? "nav-badge is-quiet" : "tab-badge is-quiet";
   if (d.complete) {
     return (
       <span className={`${cls} badge-check`} role="img" aria-label="Setup complete">
-        <IconCheck size={variant === "nav" ? 13 : 11} strokeWidth={3} />
+        <IconCheck size={variant === "nav" ? 11 : 10} strokeWidth={3} />
       </span>
     );
   }
@@ -88,12 +99,25 @@ function SetupBadge({ variant }: { variant: "nav" | "tab" }) {
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
-function ThemeButton({ pref, onClick }: { pref: "system" | "light" | "dark"; onClick: () => void }) {
+const NEXT_MODE: Record<ThemeMode, ThemeMode> = { system: "light", light: "dark", dark: "system" };
+
+/** Cycles System → Light → Dark and saves it (the same pref the Appearance screen sets). */
+function ModeButton() {
+  const { snapshot, save } = useTheme();
+  const toast = useToast();
+  const pref = snapshot?.prefs.mode ?? "system";
   const Icon = pref === "light" ? IconSun : pref === "dark" ? IconMoon : IconSystem;
-  const label = `Theme: ${pref}. Switch theme`;
+  const label = `Mode: ${pref}. Switch to ${NEXT_MODE[pref]}`;
   return (
-    <button type="button" className="btn btn-icon" onClick={onClick} aria-label={label} title={label}>
-      <Icon size={17} />
+    <button
+      type="button"
+      className="btn btn-icon btn-ghost"
+      disabled={!snapshot}
+      onClick={() => save({ mode: NEXT_MODE[pref] }).catch((e: unknown) => toast.show(e instanceof Error ? e.message : "Couldn't switch mode.", "error"))}
+      aria-label={label}
+      title={label}
+    >
+      <Icon size={16} />
     </button>
   );
 }
@@ -156,8 +180,9 @@ function ConnectionBanner() {
 
 export function App() {
   const [route, go] = useHashRoute(ROUTES, "today");
-  const [theme, cycleTheme] = useTheme();
   const { pendingCount, today, setup } = useAppData();
+  const theme = useTheme();
+  const toast = useToast();
   const online = !today.error && !!today.data;
   const [barOpen, setBarOpen] = useState(false);
   const [barMode, setBarMode] = useState<BarMode>("ask");
@@ -166,6 +191,8 @@ export function App() {
     if (mode) setBarMode(mode);
     setBarOpen(true);
   }, []);
+
+  const openAppearance = useCallback(() => go("appearance"), [go]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -188,14 +215,49 @@ export function App() {
   }, [setup.data, route, go]);
 
   useEffect(() => {
-    const label = NAV.find((n) => n.id === route)?.label ?? "Today";
-    document.title = `${pendingCount ? `(${pendingCount}) ` : ""}${label} · me`;
+    document.title = `${pendingCount ? `(${pendingCount}) ` : ""}${TITLES[route]} · me`;
   }, [route, pendingCount]);
 
   useEffect(() => {
     document.getElementById("main")?.scrollTo?.(0, 0);
     window.scrollTo(0, 0);
   }, [route]);
+
+  const save = theme.save;
+  const commands = useMemo<Command[]>(() => {
+    const setMode = (mode: ThemeMode, label: string) => () =>
+      save({ mode })
+        .then(() => toast.show(label, "ok"))
+        .catch((e: unknown) => toast.show(e instanceof Error ? e.message : "Couldn't switch mode.", "error"));
+    return [
+      ...NAV.map(({ id, label, Icon, keywords }) => ({
+        id: `go-${id}`,
+        label,
+        hint: "Page",
+        keywords,
+        Icon,
+        run: () => go(id),
+      })),
+      {
+        id: "go-appearance",
+        label: "Appearance",
+        hint: "Theme, mode, accent, adaptive colours",
+        keywords: "theme themes colours colors palette accent adaptive look dark light mode",
+        Icon: IconPalette,
+        run: () => go("appearance"),
+      },
+      { id: "mode-dark", label: "Dark mode", hint: "Appearance", keywords: "theme night", Icon: IconMoon, run: setMode("dark", "Dark mode on.") },
+      { id: "mode-light", label: "Light mode", hint: "Appearance", keywords: "theme day", Icon: IconSun, run: setMode("light", "Light mode on.") },
+      {
+        id: "mode-system",
+        label: "System mode",
+        hint: "Follow your Mac's appearance",
+        keywords: "theme auto automatic",
+        Icon: IconSystem,
+        run: setMode("system", "Following your system appearance."),
+      },
+    ];
+  }, [go, save, toast]);
 
   const Screen = SCREENS[route];
   const shortcut = isMac ? "⌘K" : "Ctrl K";
@@ -214,15 +276,16 @@ export function App() {
       </a>
       <aside className="sidebar" aria-label="Primary">
         <div className="brand">
-          <img src="./icon.svg" alt="" width={28} height={28} />
-          <div>
+          <img src="./icon.svg" alt="" width={24} height={24} />
+          <div className="brand-text">
             <div className="brand-name">me</div>
             <div className="brand-sub">Mission Control</div>
           </div>
         </div>
+        <StatePill onAppearance={openAppearance} />
         <button type="button" className="cmd-trigger" onClick={() => openBar("ask")}>
-          <IconCommand size={15} />
-          <span>Ask or capture</span>
+          <IconCommand size={14} />
+          <span>Ask or jump to…</span>
           <kbd>{shortcut}</kbd>
         </button>
         <nav className="side-nav">
@@ -237,11 +300,11 @@ export function App() {
                 go(id);
               }}
             >
-              <Icon size={18} />
-              <span>{label}</span>
+              <Icon size={16} />
+              <span className="nav-label">{label}</span>
               {id === "approvals" && pendingCount > 0 ? (
                 <span className="nav-badge" aria-label={`${pendingCount} pending`}>
-                  {pendingCount}
+                  {pendingCount > 99 ? "99+" : pendingCount}
                 </span>
               ) : null}
               {id === "setup" ? <SetupBadge variant="nav" /> : null}
@@ -249,31 +312,61 @@ export function App() {
           ))}
         </nav>
         <div className="side-foot">
-          <ThemeButton pref={theme} onClick={cycleTheme} />
-          <span className="conn small muted" title={today.updatedAt ? `Last updated ${today.updatedAt.toLocaleTimeString()}` : undefined}>
+          <span
+            className="conn"
+            title={today.updatedAt ? `Last updated ${today.updatedAt.toLocaleTimeString()}` : undefined}
+          >
             <span className={`status-dot ${online ? "dot-ok" : today.loading ? "dot-dim" : "dot-bad"}`} aria-hidden="true" />
-            {online ? "connected" : today.loading ? "connecting…" : "offline"}
+            {online ? "Connected" : today.loading ? "Connecting" : "Offline"}
           </span>
+          <ModeButton />
+          <a
+            href="#/appearance"
+            className={`btn btn-icon btn-ghost ${route === "appearance" ? "is-active" : ""}`}
+            aria-label="Appearance"
+            aria-current={route === "appearance" ? "page" : undefined}
+            title="Appearance"
+            onClick={(e) => {
+              e.preventDefault();
+              go("appearance");
+            }}
+          >
+            <IconPalette size={16} />
+          </a>
         </div>
       </aside>
 
       <header className="topbar">
         <div className="brand">
-          <img src="./icon.svg" alt="" width={24} height={24} />
+          <img src="./icon.svg" alt="" width={22} height={22} />
           <span className="brand-name">me</span>
         </div>
+        <StatePill compact onAppearance={openAppearance} />
         <div className="topbar-actions">
-          <ThemeButton pref={theme} onClick={cycleTheme} />
+          <a
+            href="#/appearance"
+            className={`btn btn-icon btn-ghost ${route === "appearance" ? "is-active" : ""}`}
+            aria-label="Appearance"
+            title="Appearance"
+            onClick={(e) => {
+              e.preventDefault();
+              go("appearance");
+            }}
+          >
+            <IconPalette size={17} />
+          </a>
           <button type="button" className="btn btn-primary btn-sm" onClick={() => openBar("ask")}>
-            <IconCommand size={14} /> Ask
+            <IconCommand size={13} /> Ask
           </button>
         </div>
       </header>
 
       <main id="main" className="main" tabIndex={-1}>
-        <ConnectionBanner />
-        <PausedBanner />
-        <Screen key={route} />
+        <div className="main-inner">
+          <ConnectionBanner />
+          <PausedBanner />
+          <Screen key={route} />
+        </div>
       </main>
 
       <nav className="tabbar" aria-label="Primary">
@@ -289,7 +382,7 @@ export function App() {
             }}
           >
             <span className="tab-icon">
-              <Icon size={20} />
+              <Icon size={19} />
               {id === "approvals" && pendingCount > 0 ? (
                 <span className="tab-badge" aria-label={`${pendingCount} pending`}>
                   {pendingCount > 99 ? "99+" : pendingCount}
@@ -302,7 +395,13 @@ export function App() {
         ))}
       </nav>
 
-      <CommandBar open={barOpen} mode={barMode} onMode={setBarMode} onClose={() => setBarOpen(false)} />
+      <CommandBar
+        open={barOpen}
+        mode={barMode}
+        onMode={setBarMode}
+        onClose={() => setBarOpen(false)}
+        commands={commands}
+      />
     </div>
   );
 }

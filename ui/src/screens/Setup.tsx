@@ -13,7 +13,7 @@ import {
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { IconAlert, IconCheck, IconCopy, IconExternal, IconPhone, IconRefresh, IconTerminal, IconX } from "../components/Icons";
 import { QrCode } from "../components/QrCode";
-import { Card, Empty, ErrorState, Loading, PageHead, Spinner, Ticks } from "../components/ui";
+import { Card, Empty, ErrorState, PageHead, SkeletonCard, Spinner, Ticks } from "../components/ui";
 import { useAppData } from "../data";
 import { useToast } from "../toast";
 
@@ -472,7 +472,7 @@ function PhonePairing({ ntfy }: { ntfy: SetupNtfy | null }) {
   if (!topic) {
     return (
       <div className="phone-pair">
-        <Empty icon={<IconPhone size={20} />}>No notification topic yet. Re-check once the steps above are done.</Empty>
+        <Empty icon={<IconPhone size={16} />}>No notification topic yet. Re-check once the steps above are done.</Empty>
       </div>
     );
   }
@@ -526,7 +526,7 @@ function DonePanel() {
   return (
     <div className="card setup-done" role="status">
       <div className="setup-done-icon" aria-hidden="true">
-        <IconCheck size={28} />
+        <IconCheck size={20} />
       </div>
       <div className="setup-done-body">
         <h2>You're set up.</h2>
@@ -675,7 +675,7 @@ export function SetupScreen() {
             disabled={deep}
             title="Also checks which claude.ai connectors are loaded. Takes about 3 seconds."
           >
-            {deep ? <Spinner size={14} /> : <IconRefresh size={15} />}
+            {deep ? <Spinner size={13} /> : <IconRefresh size={14} />}
             {deep ? "Checking…" : "Re-check (deep)"}
           </button>
         }
@@ -697,9 +697,10 @@ export function SetupScreen() {
       {setup.error ? <ErrorState compact={!!d} error={setup.error} onRetry={() => void refreshSetup()} /> : null}
 
       {setup.loading ? (
-        <Card>
-          <Loading rows={5} />
-        </Card>
+        <>
+          <SkeletonCard rows={3} />
+          <SkeletonCard rows={4} />
+        </>
       ) : d ? (
         <>
           {d.complete ? <DonePanel /> : null}

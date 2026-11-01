@@ -1,7 +1,16 @@
 # me · Mission Control (UI)
 
-Local dashboard for the `me` harness: Today, Approvals, Work, Agents, Wellbeing, Memory, a first-run Setup screen and a ⌘K command bar.
+Local dashboard for the `me` harness: Today, Approvals, Work, Agents, Wellbeing, Memory, Appearance, a first-run Setup screen and a ⌘K command bar.
 Vite + React 18 + TypeScript, no UI framework. The API contract is `../docs/mission-control-api.md`.
+
+## Theme
+
+Colours come from `GET /api/theme` (the palette engine is `harness/theme.py`). `src/theme.tsx` applies the
+palette for the resolved light/dark mode as CSS custom properties on `<html>` (`bg` → `--bg`), sets
+`data-mode`, `data-state` and `data-calm`, and caches the last palette in localStorage so `index.html` can
+replay it before first paint. `src/styles.css` holds the Aurora defaults and builds every other colour from
+those tokens; the main ones are registered with `@property` so state changes morph. `data-calm="true"`
+(strained, rest) drops glow and motion and quiets badges. Don't hard-code colours outside the token block.
 
 ## Build
 

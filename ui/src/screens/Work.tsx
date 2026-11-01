@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { api, type CiStatus, type JiraIssue } from "../api";
-import { IconWork } from "../components/Icons";
-import { Card, Empty, ErrorState, ExtLink, Loading, PageHead, RefreshButton } from "../components/ui";
+import { IconApprovals, IconCheck, IconWork } from "../components/Icons";
+import { Card, Empty, ErrorState, ExtLink, PageHead, RefreshButton, SkeletonCard } from "../components/ui";
 import { absTime, relTime } from "../format";
 import { useResource } from "../hooks";
 
@@ -43,13 +43,13 @@ function StaleSplit<T extends { stale: boolean }>({
 }) {
   const fresh = items.filter((i) => !i.stale);
   const stale = items.filter((i) => i.stale);
-  if (!items.length) return <Empty>{empty}</Empty>;
+  if (!items.length) return <Empty icon={<IconCheck size={16} />}>{empty}</Empty>;
   return (
     <>
       {fresh.length ? <ul className="work-list">{fresh.map(render)}</ul> : <p className="muted small">Only stale items here.</p>}
       {stale.length ? (
         <details className="stale">
-          <summary>stale ({stale.length})</summary>
+          <summary>Stale ({stale.length})</summary>
           <ul className="work-list">{stale.map(render)}</ul>
         </details>
       ) : null}
@@ -89,9 +89,7 @@ export function WorkScreen() {
       {res.loading ? (
         <div className="grid-2">
           {[0, 1, 2, 3].map((i) => (
-            <Card key={i}>
-              <Loading rows={3} />
-            </Card>
+            <SkeletonCard key={i} rows={3} />
           ))}
         </div>
       ) : w ? (
@@ -178,7 +176,7 @@ export function WorkScreen() {
                 );
               })
             ) : (
-              <Empty>No Jira issues assigned.</Empty>
+              <Empty icon={<IconCheck size={16} />}>No Jira issues assigned.</Empty>
             )}
           </Card>
 
@@ -191,7 +189,7 @@ export function WorkScreen() {
                       <ExtLink href={d.pr_url ?? ""} className="work-title">
                         {(d.pr_url ?? "Pull request").replace(/^https?:\/\/(www\.)?github\.com\//, "")}
                       </ExtLink>
-                      <span className="muted small" title={absTime(d.at)}>
+                      <span className="card-meta" title={absTime(d.at)}>
                         {relTime(d.at)}
                       </span>
                     </div>
@@ -214,7 +212,7 @@ export function WorkScreen() {
                 ))}
               </ul>
             ) : (
-              <Empty>No CI failures diagnosed.</Empty>
+              <Empty icon={<IconApprovals size={16} />}>No CI failures diagnosed.</Empty>
             )}
           </Card>
 
@@ -241,7 +239,7 @@ export function WorkScreen() {
         </div>
       ) : !res.error ? (
         <Card>
-          <Empty icon={<IconWork size={20} />}>Nothing to show yet.</Empty>
+          <Empty icon={<IconWork size={16} />}>Nothing to show yet.</Empty>
         </Card>
       ) : null}
     </>

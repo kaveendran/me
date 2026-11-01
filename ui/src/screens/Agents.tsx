@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { api, type Agent } from "../api";
 import { IconAgents, IconPause, IconPlay } from "../components/Icons";
-import { Card, Empty, ErrorState, Loading, PageHead, RefreshButton, Spinner } from "../components/ui";
+import { Card, Empty, ErrorState, PageHead, RefreshButton, SkeletonCard, Spinner } from "../components/ui";
 import { useAppData } from "../data";
 import { absTime, money, relTime } from "../format";
 import { useNow } from "../hooks";
@@ -56,7 +56,7 @@ function KillSwitch({ paused }: { paused: boolean }) {
         onClick={() => void toggle()}
         disabled={busy}
       >
-        {busy ? <Spinner size={14} /> : paused ? <IconPlay size={15} /> : <IconPause size={15} />}
+        {busy ? <Spinner size={13} /> : paused ? <IconPlay size={14} /> : <IconPause size={14} />}
         {paused ? "Resume all" : "Pause all"}
       </button>
     </div>
@@ -152,9 +152,14 @@ export function AgentsScreen() {
       />
       {agents.error ? <ErrorState compact={!!d} error={agents.error} onRetry={() => void agents.refresh()} /> : null}
       {agents.loading ? (
-        <Card>
-          <Loading rows={5} />
-        </Card>
+        <>
+          <div className="agents-top">
+            <SkeletonCard rows={1} />
+            <SkeletonCard rows={1} />
+            <SkeletonCard rows={1} />
+          </div>
+          <SkeletonCard rows={5} />
+        </>
       ) : d ? (
         <>
           <div className="agents-top">
@@ -195,7 +200,9 @@ export function AgentsScreen() {
                 </tbody>
               </table>
             ) : (
-              <Empty icon={<IconAgents size={20} />}>No agents registered yet.</Empty>
+              <div className="card-pad">
+                <Empty icon={<IconAgents size={16} />}>No agents registered yet.</Empty>
+              </div>
             )}
           </Card>
         </>

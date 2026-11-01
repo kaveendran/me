@@ -1,10 +1,48 @@
-import { Fragment, useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 import { api, parseChatEvent, type ChatEvent, type NoteKind } from "../api";
 import { money } from "../format";
 import { IconSpark, IconX } from "./Icons";
 import { Linkify, Spinner, Ticks } from "./ui";
 
 export type BarMode = "ask" | "capture";
+
+/** Something the bar can do instead of asking: open a screen, switch mode… */
+export interface Command {
+  id: string;
+  label: string;
+  hint?: string;
+  /** Extra words it answers to, e.g. "theme colours palette". */
+  keywords: string;
+  Icon: ComponentType<{ size?: number }>;
+  run: () => void;
+}
+
+const FILLER = new Set(["go", "to", "open", "the", "show", "switch", "me"]);
+
+/** Commands whose words cover every typed word (prefix match). Questions rarely do. */
+function matchCommands(q: string, commands: readonly Command[]): Command[] {
+  const words = q
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w && !FILLER.has(w));
+  if (q.trim().length < 2 || !words.length) return [];
+  return commands
+    .filter((c) => {
+      const hay = `${c.label} ${c.keywords}`.toLowerCase().split(/[^a-z0-9]+/);
+      return words.every((w) => hay.some((h) => h.startsWith(w)));
+    })
+    .slice(0, 5);
+}
 
 interface Turn {
   id: number;
@@ -45,11 +83,13 @@ export function CommandBar({
   mode,
   onMode,
   onClose,
+  commands,
 }: {
   open: boolean;
   mode: BarMode;
   onMode: (m: BarMode) => void;
   onClose: () => void;
+  commands: readonly Command[];
 }) {
   // --- Ask state (kept while the overlay is closed so follow-ups work) ---
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -72,6 +112,17 @@ export function CommandBar({
   const restoreFocus = useRef<HTMLElement | null>(null);
 
   const streaming = turns.some((t) => t.streaming);
+
+  // --- Commands (jump to a screen, switch mode) ---
+  const matches = useMemo(() => matchCommands(q, commands), [q, commands]);
+  const [active, setActive] = useState(0);
+  useEffect(() => setActive(0), [q]);
+  const activeCmd = matches.length > 0 && active >= 0 ? matches[Math.min(active, matches.length - 1)] : undefined;
+  const runCommand = (c: Command) => {
+    setQ("");
+    onClose();
+    c.run();
+  };
 
   useEffect(() => () => esRef.current?.close(), []);
 
@@ -189,8 +240,47 @@ export function CommandBar({
 
   const submitAsk = (e: FormEvent) => {
     e.preventDefault();
-    ask(q);
+    if (activeCmd) runCommand(activeCmd);
+    else ask(q);
   };
+
+  const onAskKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (!matches.length) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActive((a) => Math.min(matches.length - 1, a + 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActive((a) => Math.max(-1, a - 1)); // -1: Enter asks instead
+    }
+  };
+
+  const commandList = matches.length ? (
+    <div className="cmd-list" role="listbox" aria-label="Jump to" id="cmd-list">
+      <div className="cmd-list-label">Jump to</div>
+      {matches.map((c, i) => (
+        <button
+          key={c.id}
+          type="button"
+          role="option"
+          id={`cmd-opt-${c.id}`}
+          aria-selected={c === activeCmd}
+          className={`cmd-item ${c === activeCmd ? "is-active" : ""}`}
+          onMouseEnter={() => setActive(i)}
+          onClick={() => runCommand(c)}
+        >
+          <c.Icon size={15} />
+          <span className="cmd-item-label">{c.label}</span>
+          {c.hint ? <span className="cmd-item-hint">{c.hint}</span> : null}
+          {c === activeCmd ? <kbd aria-hidden="true">↵</kbd> : null}
+        </button>
+      ))}
+      <div className="cmd-list-foot">
+        <kbd>↑</kbd>
+        <kbd>↓</kbd> to choose · keep typing to ask instead
+      </div>
+    </div>
+  ) : null;
 
   const capture = async (e?: FormEvent) => {
     e?.preventDefault();
@@ -281,7 +371,9 @@ export function CommandBar({
         {mode === "ask" ? (
           <div className="cmd-body" role="tabpanel" aria-label="Ask">
             <div className="chat-log" ref={logRef} aria-live="polite">
-              {turns.length === 0 ? (
+              {turns.length === 0 && commandList ? (
+                commandList
+              ) : turns.length === 0 ? (
                 <div className="chat-empty">
                   <IconSpark size={22} />
                   <p>Ask about your day, your work, or what you've written down.</p>
@@ -292,6 +384,9 @@ export function CommandBar({
                       </button>
                     ))}
                   </div>
+                  <p className="chat-tip">
+                    Type a page name, like <kbd>Approvals</kbd> or <kbd>Theme</kbd>, to jump there.
+                  </p>
                 </div>
               ) : (
                 turns.map((t) => (
@@ -328,6 +423,7 @@ export function CommandBar({
                 ))
               )}
             </div>
+            {turns.length > 0 ? commandList : null}
             <form className="cmd-input-row" onSubmit={submitAsk}>
               <label className="sr-only" htmlFor="cmd-ask">
                 Ask a question
@@ -338,9 +434,14 @@ export function CommandBar({
                 className="cmd-input"
                 type="text"
                 autoComplete="off"
-                placeholder={session ? "Ask a follow-up…" : "Ask anything…"}
+                placeholder={session ? "Ask a follow-up…" : "Ask anything, or jump to a page…"}
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
+                onKeyDown={onAskKey}
+                role="combobox"
+                aria-expanded={matches.length > 0}
+                aria-controls={matches.length ? "cmd-list" : undefined}
+                aria-activedescendant={activeCmd ? `cmd-opt-${activeCmd.id}` : undefined}
               />
               {streaming ? (
                 <button type="button" className="btn btn-ghost" onClick={stop}>
@@ -348,7 +449,7 @@ export function CommandBar({
                 </button>
               ) : (
                 <button type="submit" className="btn btn-primary" disabled={!q.trim()}>
-                  Ask
+                  {activeCmd ? "Open" : "Ask"}
                 </button>
               )}
             </form>
