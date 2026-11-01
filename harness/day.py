@@ -129,11 +129,29 @@ def validate_plan(data: dict) -> dict:
     if not 1 <= len(top3) <= 3 or not all(isinstance(t, dict) and t.get("title") for t in top3):
         raise ValueError("plan needs top3: 1-3 items, each with a title")
     for b in data.get("blocks") or []:
-        if not (_HHMM.match(b.get("start", "")) and _HHMM.match(b.get("end", "")) and b["start"] < b["end"]):
-            raise ValueError(f"bad block {b!r}: need start < end as HH:MM")
+        if not (_HHMM.match(b.get("start", "")) and _HHMM.match(b.get("end", "")) and b["start"] < b["end"] and b.get("task")):
+            raise ValueError(f"bad block {b!r}: need start < end as HH:MM, and a task")
     energy = data.get("energy")
     if energy is not None and energy not in range(1, 6):
         raise ValueError("energy must be 1-5")
+    return data
+
+
+def validate_shutdown(data: dict) -> dict:
+    for key in ("done", "carry", "wins"):
+        value = data.get(key) or []
+        if not isinstance(value, list) or not all(isinstance(x, str) and x.strip() for x in value):
+            raise ValueError(f"shutdown {key} must be a list of strings")
+    for key in ("tomorrow_first", "note"):
+        if data.get(key) is not None and not isinstance(data[key], str):
+            raise ValueError(f"shutdown {key} must be a string")
+    moved = data.get("jira_moved")
+    if moved is not None and (isinstance(moved, bool) or not isinstance(moved, int) or moved < 0):
+        raise ValueError("jira_moved must be a whole number")
+    for w in data.get("worklogs") or []:
+        if not (isinstance(w, dict) and _JIRA_KEY.match(str(w.get("key", ""))) and isinstance(w.get("minutes"), int)
+                and 0 < w["minutes"] <= 720):
+            raise ValueError(f"bad worklog {w!r}: need a Jira key and 1-720 minutes")
     return data
 
 
@@ -242,6 +260,7 @@ def render_shutdown(data: dict, actual: dict, at: datetime) -> str:
 
 
 def commit_shutdown(cfg: Config, conn, day: date, data: dict, actual: dict, now: datetime | None = None) -> list:
+    data = validate_shutdown(data)
     now = now or datetime.now()
     path = vault.ensure_note(cfg, "daily", day)
     text = path.read_text(encoding="utf-8")

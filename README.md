@@ -47,18 +47,23 @@ Autonomy is set in `autonomy.toml`: housekeeping runs automatically, and anythin
 ## Daily use
 
 `me` with no arguments opens the terminal UI:
-- **Tabs:** Today, Approvals, Agents, Wellbeing, Setup, Chat.
+- **Tabs:** Today, Approvals, Agents, Wellbeing, Setup, Chat, Plan.
 - **Chat:** press `/` anywhere to ask a question and get the answer right there, streamed, with the notes it read. It's read-only and multi-turn; `x` stops an answer or starts a new chat.
-- **Keys:** `n`/`t`/`i` capture, `c` check-in, `b` brief, `a`/`x` approve or reject, `T` appearance, `?` every key. `p` plan, `s` shutdown and `d` diary open a full Claude Code session, because those change your calendar, Jira and notes and Claude Code asks before each change; type `/exit` to come back. Everything else is a command:
+- **Plan, shutdown and diary:** `p`, `s` and `d` start a conversation in the Plan tab. Claude looks things up but changes nothing. When you agree, you get a checklist:
+  - Your note (plan, shutdown or diary entry) is always saved, and only to the private vault.
+  - Focus blocks, Jira moves and worklogs, the Work Log row and agent approvals happen only if you leave them ticked.
+  - `space` ticks or unticks, `⏎` does the ticked ones, `/` goes back to talking, `x` stops an answer or ends the session.
+  - `V` opens the diary in Claude Code instead, where voice works.
+- **Keys:** `n`/`t`/`i` capture, `c` check-in, `b` brief, `a`/`x` approve or reject, `T` appearance, `?` every key. Everything else is a command:
 
 ```sh
-me plan              # morning planning session (Top 3, focus blocks, Jira, approvals)
+me plan              # the planning session in Claude Code (the terminal UI has it built in: p)
 me note|todo|idea "…"
 me checkin 4 --energy 3
 me proposals         # approval queue: approve <id> | reject <id> | approve-safe
 me ask "what did I promise Ravi?"
-me shutdown          # plan vs actual, carry-over, Work Log, then the diary
-me diary
+me shutdown          # plan vs actual, carry-over, Work Log, then the diary (terminal UI: s)
+me diary             # in Claude Code, where voice works (terminal UI: d, or V for voice)
 ```
 
 Inside Claude Code: `/me:plan`, `/me:shutdown`, `/me:brief`, `/me:approvals`, `/me:ask`, `/me:wiki`, `/me:checkin`, `/me:review`, `/me:note`, `/me:todo`, `/me:idea`, `/me:diary`.

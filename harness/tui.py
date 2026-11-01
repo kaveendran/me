@@ -1,9 +1,10 @@
 """`me` with no arguments: the full-screen terminal UI (curses, stdlib only).
 
-Tabs: Today · Approvals · Agents · Wellbeing · Setup. Data loads and long work
-(brief, approvals, setup actions) run in background threads, so the screen stays
-live. Only the main thread draws. Anything that needs the real terminal (plan,
-shutdown, diary, sign-ins) suspends the UI and resumes it afterwards.
+Tabs: Today · Approvals · Agents · Wellbeing · Setup · Chat · Plan. Data loads and
+long work (brief, approvals, setup actions, Claude turns) run in background
+threads, so the screen stays live. Only the main thread draws. Plan, shutdown and
+diary are conversations in the Plan tab (`rituals.Session`). Anything that needs
+the real terminal (sign-ins, the voice diary) suspends the UI and resumes it afterwards.
 
 Rendering is split into pure functions (`render_*`) that turn data into lines of
 (text, style) segments, so they can be tested without a terminal.
@@ -24,29 +25,35 @@ import unicodedata
 from contextlib import closing
 from datetime import datetime
 
-from . import ask, db, proposals, setup, theme, vault, wellbeing
+from . import ask, db, proposals, rituals, setup, theme, vault, wellbeing
 from . import brief as briefmod
 from . import server
 from . import today as todaymod
 from .config import Config
 
-TABS = ("Today", "Approvals", "Agents", "Wellbeing", "Setup", "Chat")
-CHAT = TABS.index("Chat")
+TABS = ("Today", "Approvals", "Agents", "Wellbeing", "Setup", "Chat", "Plan")
+CHAT, RITUAL = TABS.index("Chat"), TABS.index("Plan")
 SPARK = "▁▂▃▄▅▆▇█"
 ICONS = {"ok": "✓", "warn": "!", "todo": "○", "fail": "✗"}
 STATUS_STYLE = {"ok": "ok", "warn": "warn", "todo": "accent", "fail": "bad", "error": "bad", "never": "dim"}
 BAND_STYLE = {"ok": "ok", "elevated": "warn", "high": "bad"}
 STATE_ICON = {"flow": "◆", "steady": "●", "busy": "▲", "strained": "◐", "rest": "☾"}
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-RITUALS = {"p": ("plan", "/me:plan"), "s": ("shutdown", "/me:shutdown"), "d": ("diary", "/me:diary")}
+RITUALS = {"p": "plan", "s": "shutdown", "d": "diary"}
+RITUAL_WAIT = {"plan": "Gathering your calendar, Jira and GitHub (up to a minute when the brief needs rebuilding)…",
+               "shutdown": "Pulling today's commits, PRs, meetings and Claude Code time…"}
+RITUAL_AFTER = {"plan": "Tick boxes in today's note as you go; the status line tracks it. x closes this.",
+                "shutdown": "Press d to write your diary now, or x to close.", "diary": "x closes this."}
+ITEM_MARK = {"done": ("✓", "ok"), "warn": ("!", "warn"), "failed": ("✗", "bad"), "skipped": ("–", "faint")}
 CHAT_HINTS = ("What should I focus on next?", "What's waiting on me in Jira and GitHub?", "What did I get done this week?")
 HELP = """Everywhere
-  1-6, tab      switch tabs
+  1-7, tab      switch tabs
   /             chat: ask anything, answered right here (read-only)
   ↑↓, j k       move the selection or scroll
   n  t  i       capture a note, todo or idea
   c             check in: mood, energy, stress
-  p  s  d       plan the day, shutdown, diary (opens Claude Code)
+  p  s  d       plan the day, shut down, diary: a conversation in tab 7
+  V             diary by voice (opens Claude Code)
   b             gather today's brief now
   T             appearance: theme, light or dark, adaptive colours
   r             refresh this tab
@@ -56,10 +63,12 @@ Approvals    ⏎ details   a approve   x reject   A approve every safe one
 Agents       ⏎ run now   P pause or resume every scheduled job
 Setup        ⏎ fix the selected item   e edit profile   D deep re-check
 Chat         ⏎ or / ask   x stop the answer, or start a new chat   ↑↓ scroll
+Plan         ⏎ or / reply   x stop the answer, or end   then the checklist:
+             space tick or untick   ⏎ do the ticked ones   / change something
 
-p, s and d open a full Claude Code session, because planning and shutdown change
-your calendar, Jira and notes and Claude Code asks before each change. Type /exit
-there to come back.
+Plan, shutdown and diary never change anything by themselves. When you agree,
+you get a checklist: your note is always saved, and focus blocks, Jira moves,
+the Work Log and agent approvals happen only if you leave them ticked.
 
 With adaptive colours on, the accent follows your day: emerald when you're in
 flow, amber when it's busy, and soft and quiet when it's heavy or after hours."""
@@ -292,7 +301,11 @@ def render_chat(messages: list[dict], width: int, spin: str = "⠋") -> list[Lin
                                              "Read-only: I look things up, I don't change anything.", width)]
         lines += [[], [("Try", "heading")]] + [[("  › ", "accent"), (h, "text")] for h in CHAT_HINTS]
         return lines + [[], [("Press ", "dim"), ("/", "key"), (" or ", "dim"), ("⏎", "key"), (" to type.", "dim")]]
-    lines = []
+    return render_messages(messages, width, spin)
+
+
+def render_messages(messages: list[dict], width: int, spin: str = "⠋") -> list[Line]:
+    lines: list[Line] = []
     for m in messages:
         if m["role"] == "you":
             first, *rest = wrap(m["text"], width - 5) or [""]
@@ -310,6 +323,46 @@ def render_chat(messages: list[dict], width: int, spin: str = "⠋") -> list[Lin
                 lines.append([(f"     ${m['cost']:.2f}", "faint")])
         lines.append([])
     return lines
+
+
+def render_ritual(s, width: int, spin: str = "⠋") -> tuple[list[Line], list[int]]:
+    """The Plan tab: the conversation, then the checklist once Claude sends a plan, shutdown or entry."""
+    if s is None:
+        lines: list[Line] = [[("Plan, shut down or write your diary, right here", "title")]]
+        lines += [[(l, "dim")] for l in wrap("A conversation with your chief of staff. It looks things up but changes "
+                                             "nothing until you approve a checklist: focus blocks, Jira moves and the "
+                                             "Work Log happen only if you leave them ticked.", width)]
+        lines += [[], [("  p  ", "key"), ("plan the day", "text")], [("  s  ", "key"), ("shut down the day", "text")],
+                  [("  d  ", "key"), ("write your diary", "text")], [("  V  ", "key"), ("diary by voice (opens Claude Code)", "dim")]]
+        return lines, []
+    if s.stage == "gathering" and not s.messages:
+        return [[(f"{spin} ", "accent"), (RITUAL_WAIT.get(s.kind, "starting…"), "dim")]], []
+    lines = render_messages(s.messages, width, spin)
+    rows: list[int] = []
+    if s.stage not in ("review", "applying", "done") or not s.items:
+        return lines, rows
+    lines.append(heading({"review": "Ready when you are", "applying": "Making the changes", "done": "Done"}[s.stage], width))
+    if s.kind == "diary" and s.data:
+        lines += _markdown(s.data["entry"], width, "    ") + [[]]
+    for item in s.items:
+        if s.stage == "review":
+            rows.append(len(lines))
+        if item["status"] == "running":
+            mark = (f"  {spin}   ", "accent")
+        elif item["status"] in ITEM_MARK:
+            icon, style = ITEM_MARK[item["status"]]
+            mark = (f"  {icon}   ", style)
+        else:
+            mark = ("  [x] " if item["checked"] else "  [ ] ", "accent" if item["checked"] else "faint")
+        lines.append([mark, (item["label"], "text" if item["checked"] else "dim"),
+                      ("  private · always" if item["fixed"] else "", "faint")])
+        detail = item["result"] if item["status"] not in ("", "running") else item["detail"]
+        if detail:
+            style = {"failed": "bad", "warn": "warn"}.get(item["status"], "dim")
+            lines.append([("      " + detail[: max(10, width - 6)], style)])
+    if s.stage == "done":
+        lines += [[], [(RITUAL_AFTER[s.kind], "dim")]]
+    return lines, rows
 
 
 # ---------------------------------------------------------------- app
@@ -331,7 +384,9 @@ class App:
         self.chat_session: str | None = None
         self.chat_job: threading.Thread | None = None
         self.chat_cancel = threading.Event()
-        self.chat_follow = True
+        self.follow = {CHAT: True, RITUAL: True}  # pinned to the newest line until the user scrolls up
+        self.session: rituals.Session | None = None  # the plan, shutdown or diary in the Plan tab
+        self.session_job: threading.Thread | None = None
         self._pending_palette: dict | None = None
         self._picking = False
         self._sys_mode = theme.terminal_mode("system")
@@ -410,7 +465,7 @@ class App:
         return closing(db.connect(self.cfg.db_path))
 
     def load(self, tab: int, force: bool = False) -> None:
-        if tab == CHAT or tab in self.loading or (tab in self.data and not force):
+        if tab in (CHAT, RITUAL) or tab in self.loading or (tab in self.data and not force):
             return
         self.loading.add(tab)
 
@@ -522,28 +577,34 @@ class App:
 
         # tabs, with an accent underline beneath the active one
         self.put(2, 0, "─" * w, "faint")
-        x = 2
         pending = len(self.data.get(1) or [])
         setup_data = self.data.get(4) or {}
+        tabs = []
         for i, name in enumerate(TABS):
+            badge = (f" {pending}" if i == 1 and pending else
+                     " ●" if i == 4 and setup_data and not setup_data.get("complete") else
+                     " ●" if i == RITUAL and self.session and self.session.stage == "review" else "")
+            tabs.append((self.session.title if i == RITUAL and self.session else name, badge))
+        need = 2 + sum(len(f"{i + 1} ") + cells(n) + cells(b) for i, (n, b) in enumerate(tabs))
+        gap = next((g for g in (4, 3, 2) if need + g * (len(tabs) - 1) <= w), 1)
+        x = 2
+        for i, (name, badge) in enumerate(tabs):
             active, start = i == self.tab, x
             x = self.put(1, x, f"{i + 1} ", "accent" if active else "faint")
             x = self.put(1, x, name, "tab_active" if active else "tab")
-            if i == 1 and pending:
-                x = self.put(1, x, f" {pending}", "dim" if calm else "warn")
-            if i == 4 and setup_data and not setup_data.get("complete"):
-                x = self.put(1, x, " ●", "dim" if calm else "warn")
+            if badge:
+                x = self.put(1, x, badge, "dim" if calm else "accent" if i == RITUAL else "warn")
             if active:
                 self.put(2, start - 1, "━" * (x - start + 2), "accent")
-            x += 4
+            x += gap
 
         # body
         lines, rows = self.body(w - 4)
         top, height = 4, h - 7
-        if self.tab == CHAT:
+        if self.tab in self.follow:
             bottom = max(0, len(lines) - height)
-            if self.chat_follow or self.scroll[CHAT] >= bottom:
-                self.scroll[CHAT], self.chat_follow = bottom, True
+            if self.follow[self.tab] or self.scroll[self.tab] >= bottom:
+                self.scroll[self.tab], self.follow[self.tab] = bottom, True
         span = self._span(lines, rows)
         if span:
             if span[0] < self.scroll[self.tab]:
@@ -569,6 +630,8 @@ class App:
         busy = self.job and self.job.is_alive()
         if self.tab == CHAT and self.chat_job and self.chat_job.is_alive() and not busy:
             self.put(h - 2, 2, "answering… x stops it", "dim")
+        elif self.tab == RITUAL and self.session_busy() and not busy:
+            self.put(h - 2, 2, {"applying": "making the changes…"}.get(self.session.stage, "thinking… x stops it"), "dim")
         elif busy or self.tab in self.loading:
             spin = SPINNER[int(time.time() * 8) % len(SPINNER)]
             self.put(h - 2, 2, f"{spin} {self.job_label if busy else 'loading ' + TABS[self.tab].lower() + '…'}", "accent")
@@ -592,6 +655,8 @@ class App:
     def body(self, width: int) -> tuple[list[Line], list[int]]:
         if self.tab == CHAT:
             return render_chat(self.chat, width, SPINNER[int(time.time() * 8) % len(SPINNER)]), []
+        if self.tab == RITUAL:
+            return render_ritual(self.session, width, SPINNER[int(time.time() * 8) % len(SPINNER)])
         data = self.data.get(self.tab)
         if data is None:
             return [[("loading…", "dim")]], []
@@ -610,7 +675,13 @@ class App:
                  2: [("⏎", "run now"), ("P", "pause/resume")],
                  4: [("⏎", "fix"), ("e", "profile"), ("D", "deep check")],
                  CHAT: [("⏎", "ask"), ("x", "stop / new chat"), ("↑↓", "scroll")]}.get(self.tab, [])
-        return extra + [("/", "chat"), ("n", "note"), ("c", "check-in"), ("p", "plan"), ("s", "shutdown"), ("d", "diary"), ("b", "brief"),
+        if self.tab == RITUAL:
+            s = self.session
+            extra = ([("V", "voice diary")] if not s else
+                     [("space", "tick or untick"), ("⏎", "do the ticked ones"), ("/", "change"), ("x", "cancel")] if s.stage == "review" else
+                     [("x", "close")] if s.stage == "done" else
+                     [("⏎", "reply"), ("x", "stop / end"), ("↑↓", "scroll")])
+        return extra + [("/", "chat")] * (self.tab != RITUAL) + [("n", "note"), ("c", "check-in"), ("p", "plan"), ("s", "shutdown"), ("d", "diary"), ("b", "brief"),
                         ("T", "theme"), ("t", "todo"), ("i", "idea"), ("r", "refresh")]
 
     # -- input
@@ -684,8 +755,8 @@ class App:
             return found[min(self.sel[4], len(found) - 1)] if found else None
         return None
 
-    def run_ritual(self, key: str) -> None:
-        name, command = RITUALS[key]
+    def voice_diary(self) -> None:
+        """V: the diary in Claude Code, where hold-to-talk voice works."""
         claude = shutil.which("claude")
         if not claude:
             self.message = "claude CLI not found on PATH"
@@ -693,12 +764,88 @@ class App:
         argv = [claude, "--settings", str(self.cfg.claude_settings), "--model", self.cfg.model("interactive")]
         if not setup._plugin_installed():
             argv += ["--plugin-dir", str(self.cfg.plugin_dir)]
+
         def launch():
-            print(f"\n  Opening Claude Code for your {name}. It asks before changing your calendar, Jira or notes.\n"
+            print("\n  Opening Claude Code for your diary. Hold the voice key to talk.\n"
                   "  Type /exit when you're done to come back to me.\n", flush=True)
-            subprocess.call(argv + [command], cwd=self.cfg.home)
+            subprocess.call(argv + ["/me:diary"], cwd=self.cfg.home)
         self.suspend(launch)
-        self.message = f"back from {name}"
+        self.message = "back from your diary"
+
+    # -- plan, shutdown and diary in the Plan tab
+    def session_busy(self) -> bool:
+        return bool(self.session_job and self.session_job.is_alive())
+
+    def _session_run(self, fn, after=None) -> None:
+        """Run fn(session, conn) on a worker thread with its own db connection."""
+        s = self.session
+
+        def work():
+            try:
+                with self.conn() as conn:
+                    fn(s, conn)
+            except Exception as e:  # noqa: BLE001 - show it in the conversation, never crash the UI
+                s.messages.append({"role": "note", "text": f"Something went wrong: {e}"})
+                if s.stage == "gathering":
+                    s.stage = "talk"
+            finally:
+                if after:
+                    after(s)
+
+        self.session_job = threading.Thread(target=work, daemon=True)
+        self.session_job.start()
+
+    def start_ritual(self, kind: str) -> None:
+        s = self.session
+        if s and (self.session_busy() or (s.kind == kind and s.stage != "done")):
+            self.tab = RITUAL
+            if s.kind != kind:
+                self.message = f"still working on your {s.kind}"
+            return
+        if s and s.stage != "done" and any(m["role"] == "you" for m in s.messages) and \
+                not self.confirm(f"Leave your {s.kind}? Nothing from it is saved"):
+            return
+        self.session = rituals.Session(self.cfg, kind, label=tool_label)
+        self.tab, self.sel[RITUAL], self.follow[RITUAL] = RITUAL, 0, True
+        self._session_run(lambda s, conn: s.open(conn))
+
+    def ritual_key(self, ch) -> None:
+        s = self.session
+        if s is None:
+            if ch == "x":
+                self.message = "nothing to close; p plans, s shuts down, d starts the diary"
+            return
+        if ch == "x":
+            if self.session_busy():
+                if s.stage == "applying":
+                    self.message = "finishing the changes; a moment"
+                else:
+                    s.cancel.set()
+                    self.message = "stopped"
+            elif s.stage == "done" or not any(m["role"] == "you" for m in s.messages) or \
+                    self.confirm(f"End the {s.kind} without saving?"):
+                self.session = None
+                self.message = f"{s.kind} closed"
+            return
+        if self.session_busy():
+            self.message = "making the changes…" if s.stage == "applying" else "still thinking; x stops it"
+            return
+        if ch == " ":
+            s.toggle(self.sel[RITUAL])
+        elif s.stage == "review" and ch in ("\n", "\r", curses.KEY_ENTER):
+            def after(s):
+                self.message = s.outcome()
+                for t in (0, 1):
+                    self.load(t, force=True)
+                self.load_theme()
+            self._session_run(lambda s, conn: s.apply(conn), after=after)
+        elif s.stage == "done":
+            self.message = f"this {s.kind} is finished; x closes it"
+        else:
+            text = self.prompt(f"{s.kind} ›")
+            if text:
+                self.follow[RITUAL] = True
+                self._session_run(lambda s, conn: s.reply(text))
 
     def setup_action(self, item: dict) -> None:
         if item["id"] in ("profile", "crisis"):
@@ -871,7 +1018,7 @@ class App:
             self.chat.append({"role": "note", "text": wellbeing.crisis_message(self.cfg)})
         reply = {"role": "me", "text": "", "tools": [], "status": "thinking"}
         self.chat.append(reply)
-        self.chat_follow = True
+        self.follow[CHAT] = True
         self.chat_cancel = threading.Event()
 
         def emit(event: dict) -> None:
@@ -905,14 +1052,14 @@ class App:
             self.chat_cancel.set()
             self.message = "stopped"
         else:
-            self.chat, self.chat_session, self.chat_follow = [], None, True
+            self.chat, self.chat_session, self.follow[CHAT] = [], None, True
             self.message = "new chat"
 
     def handle(self, ch) -> bool:
         tab = self.tab
         if ch in ("q", "Q"):
             return False
-        if ch in ("1", "2", "3", "4", "5", "6"):
+        if ch in ("1", "2", "3", "4", "5", "6", "7"):
             self.tab = int(ch) - 1
         elif ch in ("\t", curses.KEY_RIGHT):
             self.tab = (self.tab + 1) % len(TABS)
@@ -923,9 +1070,10 @@ class App:
             self._clamp()
         elif ch in (curses.KEY_UP, "k"):
             self.sel[tab] = max(0, self.sel[tab] - 1)
-            if tab in (0, 3, CHAT):
+            if tab in (0, 3, CHAT) or (tab == RITUAL and not self.body(self.scr.getmaxyx()[1] - 4)[1]):
                 self.scroll[tab] = max(0, self.scroll[tab] - 1)
-                self.chat_follow = self.chat_follow and tab != CHAT
+                if tab in self.follow:
+                    self.follow[tab] = False
         elif ch == "r":
             self.load(tab, force=True)
             self.message = "refreshing"
@@ -934,13 +1082,17 @@ class App:
         elif ch == "c":
             self.checkin()
         elif ch in RITUALS:
-            self.run_ritual(ch)
+            self.start_ritual(RITUALS[ch])
+        elif ch == "V":
+            self.voice_diary()
         elif ch == "b":
             self.start_job("gathering your day", lambda: self._brief(), reload=(0,))
         elif ch == "T":
             self.appearance()
         elif ch == "?":
             self.show_text("Keys", HELP)
+        elif tab == RITUAL and ch in ("/", " ", "x", "\n", "\r", curses.KEY_ENTER):
+            self.ritual_key(ch)
         elif ch == "/" or (tab == CHAT and ch in ("\n", "\r", curses.KEY_ENTER)):
             self.tab = CHAT
             self.draw()
