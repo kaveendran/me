@@ -33,9 +33,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       ME_REPO: ${{ github.workspace }}   # clone this commit, the way a new user clones GitHub
-      ME_DIR: ${{ runner.temp }}/me_harness
     steps:
       - uses: actions/checkout@v4
+      - name: Install into the runner's temp folder
+        run: echo "ME_DIR=$RUNNER_TEMP/me_harness" >> "$GITHUB_ENV"
       - name: Lint the installer
         if: runner.os == 'Linux'
         run: shellcheck -s bash install.sh
@@ -84,9 +85,11 @@ jobs:
     runs-on: windows-latest
     env:
       ME_REPO: ${{ github.workspace }}
-      ME_DIR: ${{ runner.temp }}\me_harness
     steps:
       - uses: actions/checkout@v4
+      - name: Install into the runner's temp folder
+        shell: pwsh
+        run: '"ME_DIR=$env:RUNNER_TEMP\me_harness" >> $env:GITHUB_ENV'
       - name: Install, piped like irm | iex (Windows PowerShell 5.1)
         shell: powershell
         run: '& ([scriptblock]::Create((Get-Content -Raw install.ps1))) -Yes -NoSetup -NoObsidian -Ui'
