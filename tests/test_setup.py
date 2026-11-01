@@ -100,9 +100,13 @@ class EngineTest(SetupBase):
             self.assertIn("Diary/", (public / ".gitignore").read_text())
             self.assertEqual(setup.run_action(cfg, conn, "project_settings")["detail"], "installed .claude/settings.json")
             self.assertIn("already exists", setup.run_action(cfg, conn, "project_settings")["detail"])
-            with mock.patch("harness.setup.open_terminal") as term:
+            with mock.patch("harness.host.open_terminal", return_value=True) as term:
                 self.assertTrue(setup.run_action(cfg, conn, "github_login")["ok"])
                 self.assertEqual(term.call_args[0][0][:3], ["gh", "auth", "login"])
+            with mock.patch("harness.host.open_terminal", return_value=False):  # no window to open (SSH, WSL)
+                out = setup.run_action(cfg, conn, "github_login")
+                self.assertFalse(out["ok"])
+                self.assertIn("run `gh auth login", out["detail"])
             with self.assertRaises(KeyError):
                 setup.run_action(cfg, conn, "rm_rf")
 

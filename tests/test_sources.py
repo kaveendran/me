@@ -4,6 +4,7 @@ import json
 import os
 import plistlib
 import stat
+import sys
 import tempfile
 import threading
 import time
@@ -55,10 +56,16 @@ class ActivityTest(unittest.TestCase):
 
 class ClaudeRunTest(unittest.TestCase):
     def fake_claude(self, tmp: Path, init_tools: list[str], pause: int = 1) -> Path:
-        script = tmp / "claude"
         init = json.dumps({"type": "system", "subtype": "init", "session_id": "s", "tools": init_tools})
         result = json.dumps({"type": "result", "subtype": "success", "result": "ok", "num_turns": 1,
                              "total_cost_usd": 0.01, "session_id": "s"})
+        if os.name == "nt":  # a .cmd that runs Python: the run must stop cmd.exe and its child together
+            body = tmp / "fake_claude.py"
+            body.write_text(f"import time\nprint({init!r}, flush=True)\ntime.sleep({pause})\nprint({result!r}, flush=True)\n")
+            script = tmp / "claude.cmd"
+            script.write_text(f'@"{sys.executable}" "{body}" %*\n')
+            return script
+        script = tmp / "claude"
         script.write_text(f"#!/bin/sh\necho '{init}'\nsleep {pause}\necho '{result}'\n")
         script.chmod(script.stat().st_mode | stat.S_IEXEC)
         return script
@@ -68,7 +75,7 @@ class ClaudeRunTest(unittest.TestCase):
             # The fake sleeps 30s before "answering"; aborting must not wait for it.
             # (macOS can add ~1.5s to the first exec of a new script, hence the loose bound.)
             self.fake_claude(Path(tmp), ["Read", "mcp__claude_ai_Google_Drive__search_files"], pause=30)
-            with mock.patch.dict(os.environ, {"PATH": f"{tmp}:{os.environ['PATH']}"}):
+            with mock.patch.dict(os.environ, {"PATH": f"{tmp}{os.pathsep}{os.environ['PATH']}"}):
                 t0 = time.monotonic()
                 r = claude.run("x", cwd=Path(tmp), require_tool_prefix="mcp__claude_ai_Google_Sheets")
             self.assertFalse(r.ok)
@@ -80,7 +87,7 @@ class ClaudeRunTest(unittest.TestCase):
             self.fake_claude(Path(tmp), ["Read"], pause=30)
             cancel = threading.Event()
             threading.Timer(0.5, cancel.set).start()
-            with mock.patch.dict(os.environ, {"PATH": f"{tmp}:{os.environ['PATH']}"}):
+            with mock.patch.dict(os.environ, {"PATH": f"{tmp}{os.pathsep}{os.environ['PATH']}"}):
                 t0 = time.monotonic()
                 r = claude.run("x", cwd=Path(tmp), cancel=cancel)
             self.assertEqual((r.ok, r.error), (False, "cancelled"))
@@ -89,7 +96,7 @@ class ClaudeRunTest(unittest.TestCase):
     def test_run_success_with_matching_tools(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.fake_claude(Path(tmp), ["mcp__claude_ai_Google_Sheets__get_values"])
-            with mock.patch.dict(os.environ, {"PATH": f"{tmp}:{os.environ['PATH']}"}):
+            with mock.patch.dict(os.environ, {"PATH": f"{tmp}{os.pathsep}{os.environ['PATH']}"}):
                 r = claude.run("x", cwd=Path(tmp), require_tool_prefix="mcp__claude_ai_Google_Sheets")
             self.assertTrue(r.ok)
             self.assertEqual(r.text, "ok")
@@ -105,7 +112,7 @@ class ScheduleTest(unittest.TestCase):
             self.assertEqual(p["ProgramArguments"], ["/Users/x/.local/bin/me", "brief", "--scheduled"])
             self.assertEqual([d["Weekday"] for d in p["StartCalendarInterval"]], [1, 2, 3, 4, 5])
             self.assertEqual(p["StartCalendarInterval"][0]["Hour"], 7)
-            self.assertTrue(p["StandardOutPath"].endswith("state/logs/brief.log"))
+            self.assertEqual(Path(p["StandardOutPath"]).parts[-3:], ("state", "logs", "brief.log"))
             plistlib.dumps(p)  # serialisable
 
     def test_interval_keepalive_daily_weekly_jobs(self):

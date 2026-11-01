@@ -14,7 +14,7 @@ from pathlib import Path
 from harness import db, proposals, server
 from harness.config import parse
 
-from .helpers import REPO, example_raw
+from .helpers import REPO, example_raw, link_templates
 
 
 class ServerTest(unittest.TestCase):
@@ -26,7 +26,7 @@ class ServerTest(unittest.TestCase):
         raw["zones"]["public"]["vault"] = str(self.tmp / "public")
         (self.tmp / "private").mkdir()
         (self.tmp / "public").mkdir()
-        (self.tmp / "templates").symlink_to(REPO / "templates")
+        link_templates(self.tmp)
         dist = self.tmp / "ui" / "dist"
         dist.mkdir(parents=True)
         (dist / "index.html").write_text("<html><head><!--ME_TOKEN--></head></html>")

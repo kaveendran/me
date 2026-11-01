@@ -1,3 +1,4 @@
+import shutil
 import tomllib
 from pathlib import Path
 
@@ -8,6 +9,15 @@ REPO = Path(__file__).resolve().parent.parent
 
 def example_raw() -> dict:
     return tomllib.loads((REPO / "me.example.toml").read_text())
+
+
+def link_templates(home: Path) -> None:
+    """home/templates -> the repo's templates. Windows without Developer Mode can't
+    symlink, so copy there."""
+    try:
+        (home / "templates").symlink_to(REPO / "templates")
+    except OSError:
+        shutil.copytree(REPO / "templates", home / "templates")
 
 
 def make_cfg(tmp: Path) -> Config:

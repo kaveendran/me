@@ -68,8 +68,8 @@ class ClaudeTest(unittest.TestCase):
         self.assertEqual(cmd[:6], ["claude", "-p", "hi", "--output-format", "stream-json", "--verbose"])
         self.assertIn("A,B", cmd)
         self.assertEqual(cmd[cmd.index("--json-schema") + 1], '{"type": "object"}')
-        self.assertEqual(cmd[cmd.index("--plugin-dir") + 1], "/p")
-        self.assertEqual(cmd[cmd.index("--settings") + 1], "/s.json")
+        self.assertEqual(cmd[cmd.index("--plugin-dir") + 1], str(Path("/p")))
+        self.assertEqual(cmd[cmd.index("--settings") + 1], str(Path("/s.json")))
 
     def test_parse_success(self):
         seen = []

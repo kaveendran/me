@@ -108,12 +108,12 @@ function SetupRow({
           {wait === "waiting" ? (
             <div className="setup-wait">
               <Spinner size={12} />
-              <span>Finish signing in in the Terminal window that just opened…</span>
+              <span>Finish signing in in the terminal window that just opened…</span>
             </div>
           ) : wait === "timeout" ? (
             <div className="setup-wait is-timeout">
               <IconAlert size={14} />
-              <span>Still not signed in. When you've finished in Terminal, press Re-check.</span>
+              <span>Still not signed in. When you've finished in the terminal, press Re-check.</span>
             </div>
           ) : null}
         </div>
@@ -746,7 +746,7 @@ export function SetupScreen() {
       {confirming ? (
         <ConfirmDialog
           title={confirming.item.label}
-          body={confirming.action.confirm || "This changes something on your Mac."}
+          body={confirming.action.confirm || "This changes something on this computer."}
           onCancel={() => setConfirming(null)}
           onConfirm={() => {
             const c = confirming;

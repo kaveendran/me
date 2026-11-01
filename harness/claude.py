@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import signal
 import subprocess
@@ -12,6 +11,8 @@ import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from . import host
 
 
 @dataclass
@@ -142,14 +143,11 @@ def run(
 
     with subprocess.Popen(
         cmd, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE, text=True, bufsize=1, start_new_session=True,
+        stderr=subprocess.PIPE, text=True, bufsize=1, **host.new_group(),
     ) as proc:
         def stop() -> None:
             # Kill the whole group: MCP servers and other children hold our pipes open.
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except OSError:  # group already gone, or holds a process we may not signal
-                pass
+            host.kill_group(proc)
 
         def kill() -> None:
             timed_out.set()
@@ -202,11 +200,7 @@ def run(
             # A child forked while the parent was dying escapes the first kill and
             # keeps our pipes open; keep killing the group until it is empty.
             deadline = time.monotonic() + 3
-            while time.monotonic() < deadline:
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except OSError:
-                    break
+            while time.monotonic() < deadline and host.kill_group(proc):
                 time.sleep(0.02)
         proc.wait()
         drain.join(timeout=5)

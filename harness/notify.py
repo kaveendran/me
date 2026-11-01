@@ -1,6 +1,6 @@
-"""Notifications: ntfy push to the phone, macOS desktop alongside or as fallback.
+"""Notifications: ntfy push to the phone, a desktop notification alongside or as fallback.
 
-Phone buttons work without exposing the Mac: an action button POSTs a small
+Phone buttons work without exposing the computer: an action button POSTs a small
 signed JSON body to a second ntfy "reply" topic, which `me serve` subscribes to.
 Bodies carry only an id or a number, never content. The HMAC signature means
 someone who learns the reply topic still can't forge an approval.
@@ -13,30 +13,19 @@ import hmac
 import json
 import os
 import secrets
-import subprocess
 import time
 import urllib.error
 import urllib.request
 from datetime import datetime
 
-from . import db
+from . import db, host
 from .config import Config
 
 DEFAULT_DAILY_CAP = 12
 
 
-def _quote(text: str) -> str:
-    return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
-
-
 def desktop(title: str, message: str, subtitle: str | None = None) -> bool:
-    script = f"display notification {_quote(message)} with title {_quote(title)}"
-    if subtitle:
-        script += f" subtitle {_quote(subtitle)}"
-    try:
-        return subprocess.run(["osascript", "-e", script], capture_output=True, timeout=10).returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
+    return host.notify(title, message, subtitle)
 
 
 def _secret(cfg: Config) -> bytes:

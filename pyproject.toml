@@ -3,7 +3,8 @@ name = "me-harness"
 version = "0.1.0"
 description = "Personal chief-of-staff meta-harness on top of Claude Code"
 requires-python = ">=3.11"
-dependencies = []
+# Stdlib only, except on Windows, where Python ships without curses for the terminal UI.
+dependencies = ["windows-curses>=2.3; sys_platform == 'win32'"]
 
 [project.scripts]
 me = "harness.cli:main"

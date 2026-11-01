@@ -127,7 +127,7 @@ def checks(live: bool = False):
 
     jobs = schedule.status(cfg)
     installed = [j for j in jobs if "not installed" not in j]
-    yield (OK if len(installed) == len(jobs) else WARN), "schedule", f"{len(installed)}/{len(jobs)} launchd jobs installed"
+    yield (OK if len(installed) == len(jobs) else WARN), "schedule", f"{len(installed)}/{len(jobs)} {schedule.backend()} jobs installed"
     from . import memory
     root = memory.vault_root(cfg)
     yield (OK if memory.initialized(root) else WARN), "memory", "OpenWiki memory built" if memory.initialized(root) \

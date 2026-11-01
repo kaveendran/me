@@ -172,7 +172,7 @@ Both the `me setup` terminal UI and the web Setup screen are driven by the same 
 - `action` is `null` when there's nothing to do. Its `kind` is one of:
   - `run`: POST it. Show a spinner, because some actions take up to 30 s.
   - `confirm`: show `confirm` (a sentence describing the side effect) and POST only when the user agrees.
-  - `terminal`: POST it, and the server opens macOS Terminal running the command. Then poll `GET /api/setup` every 5 s for up to 2 minutes.
+  - `terminal`: POST it, and the server opens a terminal window running the command: Terminal on macOS, a console on Windows, or your Linux desktop's terminal. Then poll `GET /api/setup` every 5 s for up to 2 minutes. Where no window can open (SSH, WSL), the reply is `ok: false`, and its `detail` names the command to run.
   - `link`: just open `url` in a new tab.
 - `complete` is true when no item has `todo` or `fail`.
 

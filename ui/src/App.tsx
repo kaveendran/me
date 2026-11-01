@@ -251,7 +251,7 @@ export function App() {
       {
         id: "mode-system",
         label: "System mode",
-        hint: "Follow your Mac's appearance",
+        hint: "Follow your system's appearance",
         keywords: "theme auto automatic",
         Icon: IconSystem,
         run: setMode("system", "Following your system appearance."),

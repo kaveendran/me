@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 from . import config as config_mod
+from . import host
 from .config import Config
 from .vault import private_target_reason, zone_of
 
@@ -39,13 +40,11 @@ def check(cfg: Config, event: dict) -> str | None:
 
 
 def _vault_forms(vault: Path) -> list[str]:
-    real = os.path.realpath(vault)
-    forms = {str(vault), real}
-    home = str(Path.home())
-    for p in list(forms):
-        if p.startswith(home):
-            forms.add("~" + p[len(home):])
-            forms.add("$HOME" + p[len(home):])
+    forms = host.path_forms(str(vault)) | host.path_forms(os.path.realpath(vault))
+    for home in host.path_forms(str(Path.home())):
+        for p in list(forms):
+            if p.startswith(home):
+                forms |= {"~" + p[len(home):], "$HOME" + p[len(home):]}
     return sorted(forms, key=len, reverse=True)
 
 
@@ -64,7 +63,7 @@ def _check_bash(cfg: Config, command: str, cwd: Path) -> str | None:
     for pz in public:
         for form in _vault_forms(pz.vault):
             for d in cfg.private_dirs:
-                if f"{form}/{d}" in command:
+                if f"{form}/{d}" in command or f"{form}\\{d}" in command:
                     return f"command touches {d}/ inside the public {pz.name} vault"
         if any(f in command for f in _vault_forms(pz.vault)):
             for prz in private:
@@ -89,11 +88,13 @@ def _check_bash(cfg: Config, command: str, cwd: Path) -> str | None:
 
 
 def _names_private_dir(command: str, private_dirs: tuple[str, ...]) -> bool:
+    tokens = command.split()  # raw words too: shlex drops the backslashes of Diary\x.md
     try:
-        tokens = shlex.split(command)
+        tokens += shlex.split(command)
     except ValueError:
-        tokens = command.split()
-    return any(t.strip("/").split("/")[0] in private_dirs for t in tokens if not t.startswith("-"))
+        pass
+    return any(t.strip("'\"").replace("\\", "/").strip("/").split("/")[0] in private_dirs
+               for t in tokens if not t.startswith("-"))
 
 
 def _unignored_private_changes(vault: Path, private_dirs: tuple[str, ...]) -> list[str]:

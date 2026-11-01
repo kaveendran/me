@@ -12,7 +12,7 @@ from unittest import mock
 from harness import claude, db, day, proposals, rituals, tui, vault
 from harness.config import parse
 
-from .helpers import REPO, example_raw
+from .helpers import REPO, example_raw, link_templates
 
 TODAY = date.today()
 
@@ -48,7 +48,7 @@ class Base(unittest.TestCase):
         raw["sheets"]["worklog_id"] = "w1"
         (self.tmp / "private").mkdir()
         (self.tmp / "public").mkdir()
-        (self.tmp / "templates").symlink_to(REPO / "templates")
+        link_templates(self.tmp)
         self.cfg = replace(parse(raw, REPO), home=self.tmp)
         self.conn = db.connect(self.cfg.db_path)
 

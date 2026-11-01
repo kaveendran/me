@@ -20,7 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import ask, db, memory, notify, proposals, setup, theme, vault, wellbeing
+from . import ask, db, host, memory, notify, proposals, setup, theme, vault, wellbeing
 from . import day as daymod
 from . import today as todaymod
 from .config import Config, load
@@ -122,7 +122,7 @@ def visualize(cfg: Config) -> str:
     if not wiki.exists():
         raise ValueError("memory wiki not generated yet")
     if _visualizer is None or _visualizer.poll() is not None:
-        _visualizer = subprocess.Popen(["openwiki", "visualize", str(wiki), "--no-open", "--port", "4321"],
+        _visualizer = subprocess.Popen([host.exe("openwiki"), "visualize", str(wiki), "--no-open", "--port", "4321"],
                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         time.sleep(1.5)
     return "http://127.0.0.1:4321"
@@ -153,7 +153,7 @@ def make_handler(cfg: Config, secret: str, hosts: set[str], dist: Path):
     class Handler(BaseHTTPRequestHandler):
         server_version = "me/1"
 
-        def log_message(self, fmt, *args):  # keep launchd logs quiet
+        def log_message(self, fmt, *args):  # keep background-job logs quiet
             pass
 
         def _send(self, status: int, body: bytes, ctype: str = "application/json") -> None:

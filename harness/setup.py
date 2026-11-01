@@ -11,14 +11,13 @@ from __future__ import annotations
 
 import json
 import re
-import shlex
 import shutil
 import subprocess
 from contextlib import closing
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from . import bootstrap, claude, db, memory, notify, schedule, sheets
+from . import bootstrap, claude, db, host, memory, notify, schedule, sheets
 from .config import HOME, Config, ConfigError, load, set_value
 
 CONNECTORS_URL = "https://claude.ai/settings/connectors"
@@ -87,13 +86,13 @@ def detected_name() -> str:
 
 
 def obsidian_vaults() -> list[dict]:
-    path = Path.home() / "Library" / "Application Support" / "obsidian" / "obsidian.json"
-    try:
-        vaults = json.loads(path.read_text()).get("vaults", {}).values()
-    except (OSError, ValueError):
-        return []
-    return sorted(({"path": v["path"], "name": Path(v["path"]).name} for v in vaults if Path(v["path"]).is_dir()),
-                  key=lambda v: v["name"].lower())
+    paths = set()
+    for config in host.obsidian_configs():
+        try:
+            paths |= {host.native_path(v["path"]) for v in json.loads(config.read_text()).get("vaults", {}).values()}
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            continue
+    return sorted(({"path": p, "name": Path(p).name} for p in paths if Path(p).is_dir()), key=lambda v: v["name"].lower())
 
 
 def connectors(cfg: Config, conn, refresh: bool = False) -> dict[str, str] | None:
@@ -238,9 +237,9 @@ def items(cfg: Config, conn, deep: bool = False) -> list[Item]:
                                       confirm="Create two spreadsheets in your Google Drive: me · Work Log and me · Goals & OKRs.")))
     jobs = schedule.status(cfg)
     on = sum(1 for j in jobs if "not installed" not in j)
-    add(Item("schedule", "Automation", "Background jobs", "ok" if on == len(jobs) else "todo", f"{on}/{len(jobs)} launchd jobs",
+    add(Item("schedule", "Automation", "Background jobs", "ok" if on == len(jobs) else "todo", f"{on}/{len(jobs)} {schedule.backend()} jobs",
              None if on == len(jobs) else Action("install_schedule", "Install", "confirm",
-                                                 confirm="Install 7 launchd jobs: brief, triage, prep and check-ins, shutdown nudge, "
+                                                 confirm=f"Install 7 {schedule.backend()} jobs: brief, triage, prep and check-ins, shutdown nudge, "
                                                          "nightly memory, weekly review, Mission Control. Expect about $1/day of "
                                                          "Claude usage. `me pause` stops them anytime.")))
     settings_ok = (cfg.home / ".claude" / "settings.json").exists()
@@ -321,7 +320,7 @@ def _link_plugin(cfg: Config, conn) -> str:
     link = cfg.zone_for("daily").vault / ".obsidian" / "plugins" / "me-harness"
     link.parent.mkdir(parents=True, exist_ok=True)
     if not link.exists():
-        link.symlink_to(cfg.home / "obsidian-plugin")
+        host.link_dir(link, cfg.home / "obsidian-plugin")
     return "linked; in Obsidian: Settings → Community plugins → enable me harness"
 
 
@@ -363,28 +362,24 @@ ACTIONS = {
     "create_sheets": lambda cfg, conn: "created: " + ", ".join(sheets.url(v) for k, v in sheets.init(cfg, conn).items() if k.endswith("_id")),
     "install_schedule": lambda cfg, conn: f"installed {len(schedule.install(cfg))} jobs",
     "project_settings": _project_settings,
-    "build_ui": lambda cfg, conn: (_shell(["npm", "install"], cfg.home / "ui", 600), _shell(["npm", "run", "build"], cfg.home / "ui", 600))[1],
+    "build_ui": lambda cfg, conn: (_shell([host.exe("npm"), "install"], cfg.home / "ui", 600),
+                                   _shell([host.exe("npm"), "run", "build"], cfg.home / "ui", 600))[1],
     "memory_build": lambda cfg, conn: memory.update(cfg, conn),
     "install_plugin": _install_plugin,
 }
 
 
-def open_terminal(cmd: list[str]) -> None:
-    line = " ".join(shlex.quote(c) for c in cmd).replace("\\", "\\\\").replace('"', '\\"')
-    subprocess.run(["osascript", "-e", 'tell application "Terminal" to activate',
-                    "-e", f'tell application "Terminal" to do script "{line}"'], capture_output=True, timeout=15)
-
-
 def run_action(cfg: Config, conn, action_id: str, interactive: bool = False) -> dict:
     """Run one setup action. Terminal actions run in place when interactive (the TUI
-    suspends itself first), otherwise in a new macOS Terminal window."""
+    suspends itself first), otherwise in a new terminal window when there is one."""
     if action_id in TERMINAL_COMMANDS:
         cmd = TERMINAL_COMMANDS[action_id]
         if interactive:
             code = subprocess.call(cmd)
             return {"ok": code == 0, "detail": "signed in" if code == 0 else f"exited with {code}"}
-        open_terminal(cmd)
-        return {"ok": True, "detail": "finish signing in in the Terminal window that just opened"}
+        if host.open_terminal(cmd):
+            return {"ok": True, "detail": "finish signing in in the terminal window that just opened"}
+        return {"ok": False, "detail": f"run `{' '.join(cmd)}` in a terminal, then check again"}
     if action_id not in ACTIONS:
         raise KeyError(action_id)
     try:

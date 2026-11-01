@@ -16,10 +16,10 @@ from __future__ import annotations
 import math
 import os
 import re
-import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from . import host
 from . import today as todaymod
 from . import wellbeing
 from .config import Config, load, set_value
@@ -327,14 +327,10 @@ def basic8(hex_: str) -> int:
 
 
 def terminal_mode(pref: str) -> str:
-    """dark or light for the terminal: the preference, else COLORFGBG, else macOS appearance."""
+    """dark or light for the terminal: the preference, else COLORFGBG, else the system's appearance."""
     if pref in ("dark", "light"):
         return pref
     bg = os.environ.get("COLORFGBG", "").split(";")[-1]
     if bg.isdigit():
         return "light" if int(bg) in (7, 15) else "dark"
-    try:
-        out = subprocess.run(["defaults", "read", "-g", "AppleInterfaceStyle"], capture_output=True, text=True, timeout=2)
-        return "dark" if out.stdout.strip() == "Dark" else "light"
-    except (OSError, subprocess.TimeoutExpired):
-        return "dark"
+    return host.appearance() or "dark"

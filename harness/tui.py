@@ -25,7 +25,7 @@ import unicodedata
 from contextlib import closing
 from datetime import datetime
 
-from . import ask, db, proposals, rituals, setup, theme, vault, wellbeing
+from . import ask, db, host, proposals, rituals, setup, theme, vault, wellbeing
 from . import brief as briefmod
 from . import server
 from . import today as todaymod
@@ -231,7 +231,7 @@ def render_wellbeing(w: dict, width: int) -> list[Line]:
         lines += [[], heading("This week's experiment", width)] + [[(l, "text")] for l in wrap(w["experiment"], width, "  ")]
     if w.get("wins"):
         lines += [[], heading("Wins jar", width)] + [[(f"  {x['date'][5:]}  ", "dim"), (x["text"], "text")] for x in w["wins"][:8]]
-    lines += [[], [("Press ", "dim"), ("c", "key"), (" to check in. Your data stays on this Mac.", "dim")]]
+    lines += [[], [("Press ", "dim"), ("c", "key"), (" to check in. Your data stays on this computer.", "dim")]]
     return lines
 
 
@@ -857,8 +857,7 @@ class App:
             return
         kind = action["kind"]
         if kind == "link":
-            subprocess.run(["open", action["url"]], capture_output=True)
-            self.message = f"opened {action['url']}"
+            self.message = f"opened {action['url']}" if host.open_url(action["url"]) else f"open {action['url']}"
             return
         if kind == "confirm" and not self.confirm(action["confirm"]):
             self.message = "cancelled"
@@ -1188,6 +1187,8 @@ class App:
                 ch = self.scr.get_wch()
             except curses.error:
                 ch = None
+            if ch == curses.KEY_RESIZE and host.WINDOWS:
+                curses.resize_term(0, 0)  # PDCurses only learns the new size when asked
             if ch is not None and ch != curses.KEY_RESIZE and not self.handle(ch):
                 return
             if time.time() - last_refresh > 60:

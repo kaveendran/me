@@ -11,7 +11,7 @@ from contextlib import closing
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from . import agents, bootstrap, db, doctor, guard, memory, notify, proposals, schedule, sheets, vault, wellbeing
+from . import agents, bootstrap, db, doctor, guard, host, memory, notify, proposals, schedule, sheets, vault, wellbeing
 from . import ask as askmod
 from . import brief as briefmod
 from . import day as daymod
@@ -454,7 +454,11 @@ def cmd_tui(start: str) -> int:
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         print("me's terminal UI needs an interactive terminal; see `me --help` for commands")
         return 1
-    from . import tui
+    try:
+        from . import tui
+    except ImportError as e:  # Windows without the windows-curses package
+        print(f"me's terminal UI can't start ({e}); reinstall with `uv tool install --editable --force .`")
+        return 1
     return tui.main(start)
 
 
@@ -563,7 +567,7 @@ def build_parser() -> argparse.ArgumentParser:
     b = sub.add_parser("brief", help="gather the day and write the morning brief")
     b.add_argument("--date")
     b.add_argument("--if-stale", action="store_true", help="skip when today's brief is under 6h old")
-    b.add_argument("--scheduled", action="store_true", help="launchd mode: honour pause/workdays, notify when done")
+    b.add_argument("--scheduled", action="store_true", help="background-job mode: honour pause/workdays, notify when done")
     b.set_defaults(func=cmd_brief)
 
     t = sub.add_parser("today", help="print today's brief and plan")
@@ -585,7 +589,7 @@ def build_parser() -> argparse.ArgumentParser:
     sh.add_argument("sheets_cmd", choices=["init", "sync", "status"])
     sh.set_defaults(func=cmd_sheets)
 
-    sc = sub.add_parser("schedule", help="launchd jobs (brief, shutdown nudge)")
+    sc = sub.add_parser("schedule", help="background jobs (launchd, systemd or Task Scheduler)")
     sc.add_argument("schedule_cmd", choices=["install", "uninstall", "status"])
     sc.set_defaults(func=cmd_schedule)
 
@@ -687,6 +691,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if (code := host.relaunch_utf8(argv)) is not None:
+        return code
+    if sys.stdout is None:  # pythonw: a Windows scheduled task
+        args = sys.argv[1:] if argv is None else argv
+        host.windowless(HOME / "state" / "logs" / f"{args[0] if args else 'me'}.log")
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command is None:

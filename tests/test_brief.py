@@ -10,7 +10,7 @@ from unittest import mock
 
 from harness import brief, claude, db, sheets, today, vault
 
-from .helpers import make_cfg
+from .helpers import link_templates, make_cfg
 
 DAY = date(2026, 11, 2)
 NOW = datetime(2026, 11, 2, 7, 30)
@@ -39,7 +39,7 @@ class BriefRunTest(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmp.name)
         self.cfg = replace(make_cfg(self.tmp), home=self.tmp)
-        (self.tmp / "templates").symlink_to(Path(__file__).resolve().parent.parent / "templates")
+        link_templates(self.tmp)
         self.conn = db.connect(self.cfg.db_path)
 
     def tearDown(self):

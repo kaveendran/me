@@ -12,7 +12,7 @@ from unittest import mock
 from harness import agents, ask, claude, db, memory, notify, proposals, today, vault, wellbeing
 from harness.config import parse
 
-from .helpers import REPO, example_raw
+from .helpers import REPO, example_raw, link_templates
 
 POLICY = {"defaults": {"level": "approve", "daily_cap": 2},
           "github": {"mark_notifications_read": "auto", "merge": "off"}, "vault": {"prep_note": "auto"}}
@@ -28,7 +28,7 @@ class Base(unittest.TestCase):
         raw["ntfy"].update(topic="t-main", reply_topic="t-reply")
         (self.tmp / "private").mkdir()
         (self.tmp / "public").mkdir()
-        (self.tmp / "templates").symlink_to(REPO / "templates")
+        link_templates(self.tmp)
         self.cfg = replace(parse(raw, REPO), home=self.tmp)
         self.conn = db.connect(self.cfg.db_path)
 
