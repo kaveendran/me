@@ -162,8 +162,9 @@ class TuiRenderTest(unittest.TestCase):
     def test_lists_return_selectable_rows(self):
         lines, rows = tui.render_approvals([{"agent": "jira", "action": "comment", "safe": False, "preview": "Comment\nmore",
                                              "reason": "no AC"}], 80)
-        self.assertEqual(rows, [0])
+        self.assertEqual(rows, [2])
         self.assertIn("jira/comment", self.text(lines))
+        self.assertIn("1 waiting", self.text(lines))
         lines, rows = tui.render_setup({"complete": False, "profile": {"name": "Ada"}, "ntfy": {"topic": "t"},
                                         "items": [{"id": "a", "group": "Accounts", "label": "GitHub", "status": "todo",
                                                    "detail": "not signed in", "action": {"label": "Sign in"}},
@@ -176,6 +177,18 @@ class TuiRenderTest(unittest.TestCase):
         self.assertIn("[Sign in]", out)
         lines, _ = tui.render_agents({"paused": True, "agents": []}, 80)
         self.assertIn("Paused", self.text(lines))
+
+    def test_state_banner_heading_and_meter(self):
+        self.assertEqual(tui.render_state({"id": "steady", "label": "Steady", "message": "x"}, 80), [])
+        out = self.text(tui.render_state({"id": "busy", "label": "Busy", "message": "Pace yourself.",
+                                          "reasons": ["5.0h of meetings", "120 min without a break"]}, 80))
+        self.assertIn("▲ Busy  Pace yourself.", out)
+        self.assertIn("5.0h of meetings · 120 min without a break", out)
+        line = tui.heading("Top 3", 20, "1/3")
+        self.assertEqual(len(self.text([line])), 20)
+        self.assertEqual(self.text([tui.meter(50, "elevated", 10)]), "━━━━━━━━━━ 50 elevated")
+        self.assertEqual(tui.meter(50, "elevated", 10)[0], ("━━━━━", "warn"))
+        self.assertEqual(tui.cells("🎯 ab"), 5)
 
 
 if __name__ == "__main__":

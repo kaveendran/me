@@ -213,6 +213,8 @@ def make_handler(cfg: Config, secret: str, hosts: set[str], dist: Path):
                     if url.path not in routes:
                         return self._json({"error": "not found"}, 404)
                     self._json(routes[url.path]())
+            except ValueError as e:
+                self._json({"error": str(e)}, 400)
             except Exception as e:  # noqa: BLE001
                 self._json({"error": str(e)}, 500)
 

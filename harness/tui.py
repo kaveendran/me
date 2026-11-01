@@ -18,10 +18,11 @@ import subprocess
 import threading
 import time
 import textwrap
+import unicodedata
 from contextlib import closing
 from datetime import datetime
 
-from . import db, proposals, setup, vault, wellbeing
+from . import db, proposals, setup, theme, vault, wellbeing
 from . import brief as briefmod
 from . import server
 from . import today as todaymod
@@ -31,8 +32,27 @@ TABS = ("Today", "Approvals", "Agents", "Wellbeing", "Setup")
 SPARK = "▁▂▃▄▅▆▇█"
 ICONS = {"ok": "✓", "warn": "!", "todo": "○", "fail": "✗"}
 STATUS_STYLE = {"ok": "ok", "warn": "warn", "todo": "accent", "fail": "bad", "error": "bad", "never": "dim"}
+BAND_STYLE = {"ok": "ok", "elevated": "warn", "high": "bad"}
+STATE_ICON = {"flow": "◆", "steady": "●", "busy": "▲", "strained": "◐", "rest": "☾"}
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 RITUALS = {"p": ("plan", "/me:plan"), "s": ("shutdown", "/me:shutdown"), "d": ("diary", "/me:diary")}
+HELP = """Everywhere
+  1-5, tab      switch tabs
+  ↑↓, j k       move the selection or scroll
+  n  t  i       capture a note, todo or idea
+  c             check in: mood, energy, stress
+  p  s  d       plan the day, shutdown, diary (opens Claude here)
+  b             gather today's brief now
+  T             appearance: theme, light or dark, adaptive colours
+  r             refresh this tab
+  q             quit
+
+Approvals    ⏎ details   a approve   x reject   A approve every safe one
+Agents       ⏎ run now   P pause or resume every scheduled job
+Setup        ⏎ fix the selected item   e edit profile   D deep re-check
+
+With adaptive colours on, the accent follows your day: emerald when you're in
+flow, amber when it's busy, and soft and quiet when it's heavy or after hours."""
 
 Line = list  # list[tuple[str, str]]: (text, style)
 
@@ -56,6 +76,11 @@ def wrap(text: str, width: int, indent: str = "") -> list[str]:
     return out
 
 
+def cells(text: str) -> int:
+    """Terminal columns a string takes (wide characters such as emoji take two)."""
+    return sum(2 if unicodedata.east_asian_width(ch) in ("W", "F") else 0 if unicodedata.combining(ch) else 1 for ch in text)
+
+
 def ago(iso: str | None) -> str:
     if not iso:
         return "never"
@@ -64,68 +89,96 @@ def ago(iso: str | None) -> str:
     return "just now" if mins < 1 else f"{mins}m ago" if mins < 60 else f"{mins // 60}h ago" if mins < 1440 else f"{mins // 1440}d ago"
 
 
+def heading(label: str, width: int, extra: str = "", extra_style: str = "dim", style: str = "heading") -> Line:
+    """A section title with a faint rule running to the right edge."""
+    used = len(label) + (len(extra) + 1 if extra else 0)
+    return [(label, style), (f" {extra}" if extra else "", extra_style), (" " + "─" * max(0, width - used - 1), "faint")]
+
+
+def meter(score: int, band: str, cells_: int = 12) -> Line:
+    filled = round(max(0, min(100, score)) / 100 * cells_)
+    style = BAND_STYLE.get(band, "dim")
+    return [("━" * filled, style), ("━" * (cells_ - filled), "faint"), (f" {score}", style), (f" {band}", "dim")]
+
+
 # ---------------------------------------------------------------- renderers
 
-def render_today(t: dict, width: int, now: datetime | None = None) -> list[Line]:
+def render_state(state: dict | None, width: int) -> list[Line]:
+    """The adaptive-state banner at the top of Today. A steady day needs none."""
+    if not state or state.get("id") == "steady":
+        return []
+    head = f"{STATE_ICON.get(state['id'], '●')} {state['label']}"
+    msg = wrap(state.get("message", ""), width - len(head) - 2)
+    lines = [[(head, "heading"), ("  " + msg[0], "text")]] + [[(" " * (len(head) + 2) + m, "text")] for m in msg[1:]]
+    if state.get("reasons"):
+        lines += [[(l, "dim")] for l in wrap(" · ".join(state["reasons"]), width, " " * (len(head) + 2))]
+    return lines + [[]]
+
+
+def render_today(t: dict, width: int, now: datetime | None = None, state: dict | None = None) -> list[Line]:
     now = now or datetime.now()
-    lines: list[Line] = []
+    lines: list[Line] = render_state(state, width)
     if t.get("missing"):
-        lines += [[("No brief yet today.", "title")], [("Press ", "dim"), ("b", "key"), (" to gather it now (about 20s), or wait for 07:30.", "dim")], []]
+        lines += [[("No brief yet today.", "title")],
+                  [("Press ", "dim"), ("b", "key"), (" to gather it now (about 20s), or wait for the morning run.", "dim")], []]
     else:
-        lines += [[(l, "title")] for l in wrap(t.get("headline") or "", width)]
         load = t.get("load") or {}
-        band_style = {"ok": "ok", "elevated": "warn", "high": "bad"}.get(load.get("band"), "dim")
-        lines.append([(f"{len(t.get('events', []))} meetings · {t.get('meeting_min', 0) / 60:.1f}h", "dim"),
-                      ("   load ", "dim"), (f"{load.get('score', 0)} {load.get('band', '')}", band_style)])
-        lines.append([])
+        lines += [[(l, "title")] for l in wrap(t.get("headline") or "", width)]
+        lines.append([(f"{len(t.get('events', []))} meetings · {t.get('meeting_min', 0) / 60:.1f}h", "dim"), ("     load ", "dim"),
+                      *meter(load.get("score", 0), load.get("band", "ok"))])
+        lines += [[], heading("Schedule", width)]
         hhmm = now.strftime("%H:%M")
-        lines.append([("Schedule", "accent")])
         if not t.get("events"):
             lines.append([("  nothing on the calendar", "dim")])
         drew_now = False
         for e in t.get("events", []):
             if not drew_now and e["start"] > hhmm:
-                lines.append([(f"  {hhmm} ── now ──", "warn")])
+                lines.append([(f"  {hhmm} ── now ──", "now")])
                 drew_now = True
             style = "dim" if e["end"] <= hhmm else "focus" if e["title"].startswith("🎯") else "text"
             lines.append([(f"  {e['start']}–{e['end']}  ", "dim"), (e["title"], style),
                           (f"  ({e['attendees']})" if e.get("attendees", 0) > 1 else "", "dim")])
         if t.get("focus_windows"):
-            lines.append([("  focus: " + ", ".join(f"{w['start']}–{w['end']}" for w in t["focus_windows"]), "dim")])
+            lines.append([("  focus windows  ", "dim"), (", ".join(f"{w['start']}–{w['end']}" for w in t["focus_windows"]), "focus")])
         lines.append([])
     plan = t.get("plan")
     if plan and plan.get("top3"):
         done = sum(1 for x in plan["top3"] if x["done"])
-        lines.append([("Top 3 ", "accent"), (f"{done}/{len(plan['top3'])}", "ok" if done == len(plan["top3"]) else "dim")])
+        lines.append(heading("Top 3", width, f"{done}/{len(plan['top3'])}", "ok" if done == len(plan["top3"]) else "dim"))
         lines += [[("  ✓ " if x["done"] else "  ○ ", "ok" if x["done"] else "dim"), (x["title"], "dim" if x["done"] else "text")]
                   for x in plan["top3"]]
     elif t.get("top3_proposed"):
-        lines.append([("Proposed Top 3", "accent"), ("  (p to plan)", "dim")])
+        lines.append(heading("Proposed Top 3", width, "press p to plan"))
         for i, x in enumerate(t["top3_proposed"], 1):
             lines.append([(f"  {i}. ", "dim"), (x["title"], "text"), (f"  {x.get('why', '')}", "dim")])
     if t.get("risks"):
-        lines += [[], [("Risks", "warn")]] + [[("  • " + r, "text")] for r in t["risks"]]
+        lines += [[], heading("Risks", width, style="warn")] + [[("  • ", "warn"), (r, "text")] for r in t["risks"]]
     if t.get("proposals_pending"):
-        lines += [[], [(f"{t['proposals_pending']} approvals waiting", "warn"), ("  (2 to review)", "dim")]]
+        lines += [[], [(f"{t['proposals_pending']} approvals waiting", "warn"), ("  press 2 to review", "dim")]]
     return lines
 
 
 def render_approvals(items: list[dict], width: int) -> tuple[list[Line], list[int]]:
     if not items:
-        return [[("Nothing waiting. The agents will queue anything outward-facing here.", "dim")]], []
-    lines, rows = [], []
+        return [[("Nothing waiting.", "title")], [("The agents queue anything outward-facing here for you to approve.", "dim")]], []
+    lines: list[Line] = [[(f"{len(items)} waiting", "dim"), (" · ", "faint"), (f"{sum(1 for p in items if p['safe'])} safe to approve in one go (A)", "dim")], []]
+    rows = []
     for p in items:
         rows.append(len(lines))
-        lines.append([(f"{p['agent']}/{p['action']}", "accent"), ("  safe" if p["safe"] else "", "ok"),
-                      ("  " + p["preview"].splitlines()[0][: max(10, width - 40)], "text")])
+        lines.append([(f"{p['agent']}/{p['action']}", "heading"), ("  safe" if p["safe"] else "  outward", "ok" if p["safe"] else "warn"),
+                      (f"  {ago(p['created'])}" if p.get("created") else "", "dim")])
+        lines.append([("  " + p["preview"].splitlines()[0][: max(10, width - 4)], "text")])
         if p.get("reason"):
-            lines.append([("    " + p["reason"], "dim")])
+            lines.append([("  why  ", "faint"), (p["reason"][: max(10, width - 9)], "dim")])
+        lines.append([])
     return lines, rows
 
 
 def render_agents(a: dict, width: int) -> tuple[list[Line], list[int]]:
-    lines: list[Line] = [[("Paused: every scheduled job is off (P to resume)", "bad")] if a.get("paused") else
-                         [(f"Spend today ${a.get('spend_today', 0):.2f} · 7 days ${a.get('spend_7d', 0):.2f}", "dim")], []]
+    lines: list[Line] = [[("Paused", "bad"), (": every scheduled job is off. P resumes them.", "dim")] if a.get("paused") else
+                         [("Spend ", "dim"), (f"${a.get('spend_today', 0):.2f}", "text"), (" today · ", "dim"),
+                          (f"${a.get('spend_7d', 0):.2f}", "text"), (" last 7 days", "dim")], [],
+                         [(f"  {'Agent':<20}{'Schedule':<26}{'Last run':<10}   Last 7 days", "faint")]]
     rows = []
     for ag in a.get("agents", []):
         rows.append(len(lines))
@@ -139,28 +192,27 @@ def render_agents(a: dict, width: int) -> tuple[list[Line], list[int]]:
 
 def render_wellbeing(w: dict, width: int) -> list[Line]:
     today = w.get("today") or {}
-    band_style = {"ok": "ok", "elevated": "warn", "high": "bad"}.get(today.get("band"), "dim")
-    lines: list[Line] = [[("Load today ", "accent"), (f"{today.get('score', 0)}/100 {today.get('band', '')}", band_style)]]
-    lines += [[("  • " + r, "text")] for r in today.get("reasons", [])] or [[("  nothing heavy so far", "dim")]]
+    lines: list[Line] = [heading("Load today", width), [("  ", "text"), *meter(today.get("score", 0), today.get("band", "ok"))]]
+    lines += [[("  • ", "dim"), (r, "text")] for r in today.get("reasons", [])] or [[("  nothing heavy so far", "dim")]]
     days = w.get("days", [])
     if days:
-        lines += [[], [(f"Last {len(days)} days", "accent"), (f"  {days[0]['date'][5:]} → {days[-1]['date'][5:]}", "dim")]]
+        lines += [[], heading(f"Last {len(days)} days", width, f"{days[0]['date'][5:]} → {days[-1]['date'][5:]}")]
         series = (("mood", [d["mood"] for d in days], 1, 5), ("energy", [d["energy"] for d in days], 1, 5),
                   ("load", [d["load"] for d in days], 0, 100),
                   ("keyboard h", [round(d["active_min"] / 60, 1) for d in days], 0, None),
                   ("meetings h", [round(d["meeting_min"] / 60, 1) for d in days], 0, None))
         for label, values, lo, hi in series:
             last = next((v for v in reversed(values) if v is not None), None)
-            lines.append([(f"  {label:<11}", "dim"), (sparkline(values, lo, hi), "accent"), (f"  {last if last is not None else '–'}", "dim")])
+            lines.append([(f"  {label:<12}", "dim"), (sparkline(values, lo, hi), "accent"), (f"  {last if last is not None else '–'}", "text")])
     if w.get("checkins_today"):
-        lines += [[], [("Check-ins today", "accent")]]
-        lines += [[("  " + c["ts"][11:16] + "  " + " · ".join(f"{k} {c[k]}" for k in ("mood", "energy", "stress") if c.get(k)), "text")]
+        lines += [[], heading("Check-ins today", width)]
+        lines += [[("  " + c["ts"][11:16] + "  ", "dim"), (" · ".join(f"{k} {c[k]}" for k in ("mood", "energy", "stress") if c.get(k)), "text")]
                   for c in w["checkins_today"]]
     if w.get("experiment"):
-        lines += [[], [("This week's experiment", "accent")]] + [[(l, "text")] for l in wrap(w["experiment"], width, "  ")]
+        lines += [[], heading("This week's experiment", width)] + [[(l, "text")] for l in wrap(w["experiment"], width, "  ")]
     if w.get("wins"):
-        lines += [[], [("Wins jar", "accent")]] + [[(f"  {x['date'][5:]}  ", "dim"), (x["text"], "text")] for x in w["wins"][:8]]
-    lines += [[], [("c to check in · your data stays on this Mac", "dim")]]
+        lines += [[], heading("Wins jar", width)] + [[(f"  {x['date'][5:]}  ", "dim"), (x["text"], "text")] for x in w["wins"][:8]]
+    lines += [[], [("Press ", "dim"), ("c", "key"), (" to check in. Your data stays on this Mac.", "dim")]]
     return lines
 
 
@@ -170,21 +222,23 @@ def render_setup(s: dict, width: int) -> tuple[list[Line], list[int]]:
     lines: list[Line] = [[("Setup ", "title"), (f"{ok}/{len(found)} ready", "ok" if s.get("complete") else "warn"),
                           ("   ✓ complete" if s.get("complete") else "", "ok")]]
     p = s.get("profile", {})
-    lines.append([(f"  {p.get('name') or '(no name yet)'} · GitHub {p.get('github_user') or '–'} · Jira {p.get('jira_site') or '–'}", "dim")])
-    lines.append([("  e edit profile · D deep re-check (connectors) · Enter runs the selected fix", "dim")])
+    lines.append([(f"{p.get('name') or '(no name yet)'} · GitHub {p.get('github_user') or '–'} · Jira {p.get('jira_site') or '–'}", "dim")])
     rows, group = [], None
     for item in found:
         if item["group"] != group:
             group = item["group"]
-            lines += [[], [(group, "accent")]]
+            members = [i for i in found if i["group"] == group]
+            done = sum(1 for i in members if i["status"] == "ok")
+            lines += [[], heading(group, width, f"{done}/{len(members)}", "ok" if done == len(members) else "dim")]
         rows.append(len(lines))
-        action = item.get("action")
+        action = f"  [{item['action']['label']}]" if item.get("action") else ""
+        room = max(10, width - 32 - len(action))
+        detail = item["detail"] if len(item["detail"]) <= room else item["detail"][: room - 1] + "…"
         lines.append([(f"  {ICONS[item['status']]} ", STATUS_STYLE[item["status"]]), (f"{item['label']:<26}", "text"),
-                      (item["detail"][: max(10, width - 52)], "dim"),
-                      (f"  [{action['label']}]" if action else "", "key")])
+                      (detail, "dim"), (action, "key")])
     if s.get("ntfy", {}).get("topic"):
-        lines += [[], [("Phone: install ntfy and subscribe to ", "dim"), (s["ntfy"]["topic"], "key")],
-                  [("  (Mission Control's Setup screen shows a QR code for this)", "dim")]]
+        lines += [[], heading("Phone", width), [("  Install ntfy and subscribe to ", "dim"), (s["ntfy"]["topic"], "key")],
+                  [("  Mission Control's Setup screen shows a QR code for this.", "dim")]]
     return lines, rows
 
 
@@ -202,21 +256,80 @@ class App:
         self.job_label = ""
         self.status = ""
         self.lock = threading.Lock()
+        self.theme_state: dict | None = None  # the live adaptive state, loaded in the background
+        self._pending_palette: dict | None = None
+        self._picking = False
+        self._sys_mode = theme.terminal_mode("system")
+        self.palette = self._resolve()
         self._colors()
 
-    # -- plumbing
+    # -- colours
+    def _resolve(self, choice: dict | None = None) -> dict:
+        """The palette for the saved prefs, overridden by `choice` while the picker is open."""
+        p = {**theme.prefs(self.cfg), "preview": None, **(choice or {})}
+        mode = self._sys_mode if p["mode"] == "system" else p["mode"]
+        state = theme.STATES[p["preview"]] if p["preview"] else (
+            theme.STATES[self.theme_state["id"]] if p["adaptive"] and self.theme_state else None)
+        return theme.palette(theme.THEMES[p["name"]], mode, state, p["accent"])
+
+    def _pair(self, fg: int, bg: int = -1) -> int:
+        if (fg, bg) not in self._pairs:
+            if len(self._pairs) + 1 >= curses.COLOR_PAIRS:
+                return curses.A_NORMAL
+            curses.init_pair(len(self._pairs) + 1, fg, bg)
+            self._pairs[(fg, bg)] = len(self._pairs) + 1
+        return curses.color_pair(self._pairs[(fg, bg)])
+
     def _colors(self) -> None:
-        self.styles = {k: curses.A_NORMAL for k in ("text", "dim", "ok", "warn", "bad", "accent", "title", "key", "focus")}
-        self.styles.update(title=curses.A_BOLD, dim=curses.A_DIM, key=curses.A_BOLD)
-        if curses.has_colors():
+        """Build the style table from the palette: xterm-256 when the terminal has it, else the 8 basic colours.
+
+        Three layers share the styles: plain (the terminal's own background), sel
+        (the selected row) and bar (the top bar and pop-ups)."""
+        b = curses.A_BOLD
+        plain = {"text": 0, "title": b, "dim": curses.A_DIM, "faint": curses.A_DIM, "ok": 0, "warn": 0, "bad": 0, "now": b,
+                 "accent": 0, "heading": b, "key": b, "focus": 0, "tab": curses.A_DIM, "tab_active": b,
+                 "brand": curses.A_REVERSE | b}
+        self.styles = {"plain": plain, "sel": {k: v | b for k, v in plain.items()}, "bar": dict(plain)}
+        self._pairs: dict[tuple[int, int], int] = {}
+        self.deep = False
+        if not curses.has_colors():
+            return
+        try:
             curses.start_color()
             curses.use_default_colors()
-            for n, color in enumerate((curses.COLOR_GREEN, curses.COLOR_YELLOW, curses.COLOR_RED, curses.COLOR_CYAN,
-                                       curses.COLOR_MAGENTA), start=1):
-                curses.init_pair(n, color, -1)
-            self.styles.update(ok=curses.color_pair(1), warn=curses.color_pair(2), bad=curses.color_pair(3),
-                               accent=curses.color_pair(4) | curses.A_BOLD, key=curses.color_pair(5) | curses.A_BOLD,
-                               focus=curses.color_pair(5))
+        except curses.error:
+            return
+        pal, self.deep = self.palette, curses.COLORS >= 256
+        deep = self.deep
+
+        def c(token: str) -> int:
+            return theme.xterm256(pal[token]) if deep else theme.basic8(pal[token])
+        quiet = 0 if deep else curses.A_DIM
+        spec = {"text": (-1, 0), "title": (-1, b), "dim": (c("muted"), quiet), "faint": (c("border-strong") if deep else -1, quiet),
+                "ok": (c("ok"), 0), "warn": (c("warn"), 0), "bad": (c("bad"), 0), "now": (c("now"), b),
+                "accent": (c("accent"), 0), "heading": (c("accent"), b), "key": (c("accent"), b), "focus": (c("accent-2"), 0),
+                "tab": (c("muted"), quiet), "tab_active": (c("accent"), b)}
+        layers = {"plain": -1, "sel": c("surface-3") if deep else -1, "bar": c("surface-2") if deep else -1}
+        for layer, bg in layers.items():
+            for name, (fg, attr) in spec.items():
+                self.styles[layer][name] = self._pair(fg, bg) | attr | (b if layer == "sel" and not deep else 0)
+            self.styles[layer]["brand"] = (self._pair(c("accent-ink"), c("accent")) | b if deep
+                                           else self._pair(c("accent"), -1) | curses.A_REVERSE | b)
+
+    def swatch(self, hex_: str) -> int:
+        bg = theme.xterm256(self.palette["surface-2"]) if self.deep else -1
+        return self._pair(theme.xterm256(hex_) if self.deep else theme.basic8(hex_), bg)
+
+    def load_theme(self) -> None:
+        """Recompute the adaptive state off the main thread; draw() applies the new palette."""
+        def work():
+            try:
+                with self.conn() as conn:
+                    self.theme_state = theme.current(self.cfg, conn)
+                self._pending_palette = self._resolve()
+            except Exception as e:  # noqa: BLE001 - colours are cosmetic, never crash for them
+                self.message = f"theme: {e}"
+        threading.Thread(target=work, daemon=True).start()
 
     def conn(self):
         return closing(db.connect(self.cfg.db_path))
@@ -281,68 +394,122 @@ class App:
             self.reload_all()
 
     # -- drawing
-    def put(self, y: int, x: int, text: str, style: str = "text", extra: int = 0) -> int:
+    def put(self, y: int, x: int, text: str, style: str | int = "text", extra: int = 0, layer: str = "plain") -> int:
         h, w = self.scr.getmaxyx()
-        if y >= h or x >= w:
+        if y < 0 or y >= h or x >= w:
             return x
         text = text[: max(0, w - x - (1 if y == h - 1 else 0))]
+        attr = style if isinstance(style, int) else self.styles[layer].get(style, 0)
         try:
-            self.scr.addstr(y, x, text, self.styles.get(style, 0) | extra)
+            self.scr.addstr(y, x, text, attr | extra)
         except curses.error:
             pass
-        return x + len(text)
+        return x + cells(text)
 
-    def draw(self) -> None:
+    def _span(self, lines: list[Line], rows: list[int]) -> tuple[int, int] | None:
+        """Lines covered by the selected item: from its row to the next item or blank line."""
+        if not rows:
+            return None
+        i = min(self.sel[self.tab], len(rows) - 1)
+        end = rows[i + 1] if i + 1 < len(rows) else len(lines)
+        return rows[i], next((j for j in range(rows[i] + 1, end) if not lines[j]), end)
+
+    def draw(self, refresh: bool = True) -> None:
+        if self._pending_palette and not self._picking:
+            if self._pending_palette != self.palette:
+                self.palette = self._pending_palette
+                self._colors()
+            self._pending_palette = None
         self.scr.erase()
         h, w = self.scr.getmaxyx()
         if w < 60 or h < 14:
             self.put(0, 0, "me: make the terminal at least 60×14", "warn")
             self.scr.refresh()
             return
-        head = f" me · {datetime.now().strftime('%a %d %b %H:%M')} "
-        self.put(0, 0, head.ljust(w), "title", curses.A_REVERSE)
-        if self.status:
-            self.put(0, max(len(head), w - len(self.status) - 1), self.status, "title", curses.A_REVERSE)
-        x = 1
+        st = self.theme_state
+        calm = bool(st and st.get("calm"))
+
+        # top bar: brand, date, status line, and the adaptive state on the right
+        self.put(0, 0, " " * w, "text", layer="bar")
+        x = self.put(0, 0, " ◆ me ", "brand", layer="bar")
+        x = self.put(0, x + 2, datetime.now().strftime("%a %d %b · %H:%M"), "dim", layer="bar")
+        right = w - 1
+        if st:
+            chip = f"{STATE_ICON.get(st['id'], '●')} {st['label']} · load {st['load']} "
+            right = w - cells(chip) - 1
+            self.put(0, right, chip, "accent", layer="bar")
+        if self.status and x + 4 + cells(self.status) < right - 2:
+            self.put(0, right - 3 - cells(self.status), self.status, "dim", layer="bar")
+
+        # tabs, with an accent underline beneath the active one
+        self.put(2, 0, "─" * w, "faint")
+        x = 2
         pending = len(self.data.get(1) or [])
         setup_data = self.data.get(4) or {}
         for i, name in enumerate(TABS):
-            label = f" {i + 1} {name}" + (f" ({pending})" if i == 1 and pending else "") + (
-                " ●" if i == 4 and setup_data and not setup_data.get("complete") else "") + " "
-            x = self.put(1, x, label, "accent" if i == self.tab else "dim", curses.A_REVERSE if i == self.tab else 0) + 1
-        self.put(2, 0, "─" * w, "dim")
-        lines, rows = self.body(w - 2)
-        top, height = 3, h - 6
-        sel_line = rows[self.sel[self.tab]] if rows else None
-        if sel_line is not None:
-            if sel_line < self.scroll[self.tab]:
-                self.scroll[self.tab] = sel_line
-            elif sel_line >= self.scroll[self.tab] + height:
-                self.scroll[self.tab] = sel_line - height + 1
+            active, start = i == self.tab, x
+            x = self.put(1, x, f"{i + 1} ", "accent" if active else "faint")
+            x = self.put(1, x, name, "tab_active" if active else "tab")
+            if i == 1 and pending:
+                x = self.put(1, x, f" {pending}", "dim" if calm else "warn")
+            if i == 4 and setup_data and not setup_data.get("complete"):
+                x = self.put(1, x, " ●", "dim" if calm else "warn")
+            if active:
+                self.put(2, start - 1, "━" * (x - start + 2), "accent")
+            x += 4
+
+        # body
+        lines, rows = self.body(w - 4)
+        top, height = 4, h - 7
+        span = self._span(lines, rows)
+        if span:
+            if span[0] < self.scroll[self.tab]:
+                self.scroll[self.tab] = span[0]
+            elif span[1] > self.scroll[self.tab] + height:
+                self.scroll[self.tab] = span[1] - height
         self.scroll[self.tab] = max(0, min(self.scroll[self.tab], max(0, len(lines) - height)))
         for row, line in enumerate(lines[self.scroll[self.tab]: self.scroll[self.tab] + height]):
             idx = self.scroll[self.tab] + row
-            xx = 1
-            if idx == sel_line:
-                self.put(top + row, 0, "▌", "key")
+            layer = "sel" if span and span[0] <= idx < span[1] else "plain"
+            if layer == "sel":
+                self.put(top + row, 0, " " * w, "text", layer="sel")
+                self.put(top + row, 0, "▎", "accent", layer="sel")
+            xx = 2
             for text, style in line:
-                xx = self.put(top + row, xx, text, style, curses.A_BOLD if idx == sel_line else 0)
-        self.put(h - 3, 0, "─" * w, "dim")
+                xx = self.put(top + row, xx, text, style, layer=layer)
+        if len(lines) > height:
+            shown = f" {self.scroll[self.tab] + 1}–{min(len(lines), self.scroll[self.tab] + height)} of {len(lines)} "
+            self.put(h - 3, w - cells(shown) - 2, shown, "faint")
+
+        # footer: message or progress, then key hints (? and q always visible)
+        self.put(h - 3, 0, "─" * (w - (cells(shown) + 3 if len(lines) > height else 0)), "faint")
         busy = self.job and self.job.is_alive()
         if busy or self.tab in self.loading:
             spin = SPINNER[int(time.time() * 8) % len(SPINNER)]
-            self.put(h - 2, 1, f"{spin} {self.job_label if busy else 'loading ' + TABS[self.tab].lower() + '…'}", "warn")
-        else:
-            self.put(h - 2, 1, self.message, "text")
-        self.put(h - 1, 1, self.keys(), "dim")
-        self.scr.refresh()
+            self.put(h - 2, 2, f"{spin} {self.job_label if busy else 'loading ' + TABS[self.tab].lower() + '…'}", "accent")
+        elif self.message:
+            self.put(h - 2, 2, self.message, "bad" if "failed" in self.message or "not saved" in self.message else "text")
+        tail = [("?", "all keys"), ("q", "quit")]
+        tail_w = sum(len(k) + len(v) + 3 for k, v in tail)
+        x = 2
+        for key, label in self.keys():
+            if x + len(key) + len(label) + 3 > w - tail_w - 2:
+                break
+            x = self.put(h - 1, x, key, "key")
+            x = self.put(h - 1, x + 1, label, "dim") + 2
+        x = w - tail_w - 1
+        for key, label in tail:
+            x = self.put(h - 1, x, key, "key")
+            x = self.put(h - 1, x + 1, label, "dim") + 2
+        if refresh:
+            self.scr.refresh()
 
     def body(self, width: int) -> tuple[list[Line], list[int]]:
         data = self.data.get(self.tab)
         if data is None:
             return [[("loading…", "dim")]], []
         if self.tab == 0:
-            return render_today(data, width), []
+            return render_today(data, width, state=self.theme_state), []
         if self.tab == 1:
             return render_approvals(data, width)
         if self.tab == 2:
@@ -351,14 +518,22 @@ class App:
             return render_wellbeing(data, width), []
         return render_setup(data, width)
 
-    def keys(self) -> str:
-        common = "n note  t todo  i idea  c check-in  p plan  s shutdown  d diary  b brief  r refresh  q quit"
-        extra = {1: "↑↓ select  ⏎ details  a approve  x reject  A approve safe   ",
-                 2: "↑↓ select  ⏎ run now  P pause/resume   ",
-                 4: "↑↓ select  ⏎ fix  e profile  D deep check   "}.get(self.tab, "")
-        return extra + common
+    def keys(self) -> list[tuple[str, str]]:
+        extra = {1: [("⏎", "details"), ("a", "approve"), ("x", "reject"), ("A", "approve safe")],
+                 2: [("⏎", "run now"), ("P", "pause/resume")],
+                 4: [("⏎", "fix"), ("e", "profile"), ("D", "deep check")]}.get(self.tab, [])
+        return extra + [("n", "note"), ("c", "check-in"), ("p", "plan"), ("s", "shutdown"), ("d", "diary"), ("b", "brief"),
+                        ("T", "theme"), ("t", "todo"), ("i", "idea"), ("r", "refresh")]
 
     # -- input
+    def read_key(self):
+        """Block until a key arrives. The main loop's 250ms timeout makes get_wch raise on silence."""
+        while True:
+            try:
+                return self.scr.get_wch()
+            except curses.error:
+                continue
+
     def prompt(self, label: str, initial: str = "") -> str | None:
         h, w = self.scr.getmaxyx()
         buf = list(initial)
@@ -371,7 +546,7 @@ class App:
                 self.put(h - 2, x + 1, shown)
                 self.scr.move(h - 2, min(w - 2, x + 1 + len(shown)))
                 self.scr.refresh()
-                ch = self.scr.get_wch()
+                ch = self.read_key()
                 if ch in ("\n", "\r", curses.KEY_ENTER):
                     return "".join(buf).strip()
                 if ch == "\x1b":
@@ -390,16 +565,19 @@ class App:
 
     def show_text(self, title: str, text: str) -> None:
         h, w = self.scr.getmaxyx()
-        lines = [title, ""] + wrap(text, w - 4)
+        lines = wrap(text, w - 6)
         offset = 0
         while True:
             self.scr.erase()
-            for row, line in enumerate(lines[offset: offset + h - 2]):
-                self.put(row, 2, line, "title" if offset + row == 0 else "text")
+            self.put(0, 0, " " * w, "text", layer="bar")
+            self.put(0, 2, title[: w - 4], "heading", layer="bar")
+            for row, line in enumerate(lines[offset: offset + h - 4]):
+                self.put(row + 2, 3, line, "text")
+            self.put(h - 2, 0, "─" * w, "faint")
             self.put(h - 1, 2, "↑↓ scroll · any other key to close", "dim")
             self.scr.refresh()
-            ch = self.scr.get_wch()
-            if ch == curses.KEY_DOWN and offset < len(lines) - (h - 2):
+            ch = self.read_key()
+            if ch == curses.KEY_DOWN and offset < len(lines) - (h - 4):
                 offset += 1
             elif ch == curses.KEY_UP and offset > 0:
                 offset -= 1
@@ -512,6 +690,82 @@ class App:
         self.message = "checked in, thank you"
         self.load(3, force=True)
         self.load(0, force=True)
+        self.load_theme()
+
+    def appearance(self) -> None:
+        """T: pick theme, mode and adaptive colours, previewing live; Enter saves to me.toml."""
+        p = theme.prefs(self.cfg)
+        choice = {"name": p["name"], "mode": p["mode"], "adaptive": p["adaptive"], "preview": None}
+        names, previews = list(theme.THEMES), [None, *theme.STATES]
+        row, before = 0, self.palette
+        self._picking = True
+        self.scr.timeout(-1)
+        try:
+            while True:
+                self.palette = self._resolve(choice)
+                self._colors()
+                self.draw(refresh=False)
+                self._draw_appearance(choice, row)
+                ch = self.read_key()
+                if ch in (curses.KEY_UP, "k"):
+                    row = (row - 1) % 4
+                elif ch in (curses.KEY_DOWN, "j", "\t"):
+                    row = (row + 1) % 4
+                elif ch in (curses.KEY_LEFT, curses.KEY_RIGHT, "h", "l", " "):
+                    step = -1 if ch in (curses.KEY_LEFT, "h") else 1
+                    if row == 0:
+                        choice["name"] = names[(names.index(choice["name"]) + step) % len(names)]
+                    elif row == 1:
+                        choice["mode"] = theme.MODES[(theme.MODES.index(choice["mode"]) + step) % len(theme.MODES)]
+                    elif row == 2:
+                        choice["adaptive"] = not choice["adaptive"]
+                    else:
+                        choice["preview"] = previews[(previews.index(choice["preview"]) + step) % len(previews)]
+                elif ch in ("\n", "\r", curses.KEY_ENTER):
+                    self.cfg = theme.save_prefs(self.cfg, {k: choice[k] for k in ("name", "mode", "adaptive")})
+                    self.palette = self._resolve()
+                    self.message = (f"theme saved: {theme.THEMES[choice['name']].label}, {choice['mode']}, "
+                                    f"adaptive {'on' if choice['adaptive'] else 'off'}")
+                    return
+                elif ch in ("\x1b", "q", "T"):
+                    self.palette = before
+                    self.message = "theme unchanged"
+                    return
+        finally:
+            self._picking = False
+            self._colors()
+            self.scr.timeout(250)
+
+    def _draw_appearance(self, choice: dict, row: int) -> None:
+        h, w = self.scr.getmaxyx()
+        bw, bh = min(66, w - 4), 13
+        y0, x0 = max(1, (h - bh) // 2), (w - min(66, w - 4)) // 2
+        for y in range(bh):
+            edge = "╭╮" if y == 0 else "╰╯" if y == bh - 1 else "││"
+            fill = "─" if y in (0, bh - 1) else " "
+            self.put(y0 + y, x0, edge[0] + fill * (bw - 2) + edge[1], "faint", layer="bar")
+        self.put(y0, x0 + 2, " Appearance ", "heading", layer="bar")
+        t = theme.THEMES[choice["name"]]
+        live = self.theme_state["label"] if self.theme_state else "loading"
+        here = self._sys_mode if choice["mode"] == "system" else choice["mode"]
+        fields = [("Theme", t.label, ""),
+                  ("Mode", choice["mode"], f"{here} in this terminal" if choice["mode"] == "system" else ""),
+                  ("Adaptive", "on" if choice["adaptive"] else "off",
+                   "follows your workload and check-ins" if choice["adaptive"] else "always the theme's own accent"),
+                  ("Preview", theme.STATES[choice["preview"]].label if choice["preview"] else f"live: {live}", "only to look, not saved")]
+        for i, (label, value, note) in enumerate(fields):
+            y, sel = y0 + 2 + i * 2, i == row
+            x = self.put(y, x0 + 2, ("▸ " if sel else "  ") + f"{label:<10}", "key" if sel else "dim", layer="bar")
+            x = self.put(y, x, f"‹ {value} ›", "tab_active" if sel else "text", layer="bar") + 2
+            if i == 0:
+                for token in ("bg", "surface", "accent", "accent-2"):
+                    x = self.put(y, x, "██", self.swatch(self.palette[token]), layer="bar") + 1
+                self.put(y + 1, x0 + 14, t.description[: bw - 16], "dim", layer="bar")
+            else:
+                self.put(y, x, note[: max(0, x0 + bw - x - 2)], "dim", layer="bar")
+        hint = "↑↓ choose · ←→ change · ⏎ save · esc cancel"
+        self.put(y0 + bh - 2, x0 + 4, hint[: bw - 6], "dim", layer="bar")
+        self.scr.refresh()
 
     def handle(self, ch) -> bool:
         tab = self.tab
@@ -541,6 +795,10 @@ class App:
             self.run_ritual(ch)
         elif ch == "b":
             self.start_job("gathering your day", lambda: self._brief(), reload=(0,))
+        elif ch == "T":
+            self.appearance()
+        elif ch == "?":
+            self.show_text("Keys", HELP)
         elif ch in ("\n", "\r", curses.KEY_ENTER):
             self.enter()
         elif tab == 1 and ch in ("a", "x", "A"):
@@ -622,6 +880,7 @@ class App:
         self.load(0)
         self.load(1)
         self.load(4)
+        self.load_theme()
         last_refresh = time.time()
         while True:
             self.draw()
@@ -635,6 +894,7 @@ class App:
                 last_refresh = time.time()
                 self.load(0, force=True)
                 self.load(1, force=True)
+                self.load_theme()
 
 
 def main(start: str = "Today") -> int:
