@@ -42,7 +42,7 @@ Plugin skills: `/me:plan`, `/me:shutdown`, `/me:brief`, `/me:approvals`, `/me:as
 - `agents.py`: triage agents, meeting prep and the inbox librarian. They all follow gather → `judge()` (structured, no tools, no MCP) → `proposals.propose()`. `review.py` is the weekly review.
 - `proposals.py`: the queue and executors (`gh`, `tool` via a single-purpose `claude -p`, `vault` ops, `claude_code`).
 - `wellbeing.py`: check-ins, signals from transcripts, worklog and today.json, the load score (reasons always shown), break and check-in timing.
-- `notify.py`: ntfy push (quiet hours, daily cap, once-per-day, `force`) and the signed reply listener. `server.py`: the Mission Control API (contract in `docs/mission-control-api.md`), SSE chat, static `ui/dist`, token and Host checks.
+- `notify.py`: ntfy push (quiet hours, daily cap, once-per-day, `force`) and the signed reply listener. The desktop fallback goes through `host.notify`. `server.py`: the Mission Control API (contract in `docs/mission-control-api.md`), SSE chat, static `ui/dist`, token and Host checks.
 - `memory.py`: snapshot-commit the private vault, then OpenWiki init/update through the openwiki skill in headless Claude. Also code wikis, and `search`. `ask.py`: read-only Q&A (contract in `docs/obsidian-plugin.md`).
 - `setup.py`: the onboarding engine behind `me setup` (TUI) and Mission Control's Setup screen. Items have a status and an optional action (`run`, `confirm`, `terminal` or `link`). The profile is written into me.toml. Connector status comes from the session-init `mcp_servers` list (`claude.mcp_servers`, which costs nothing). claude.ai connector tools load lazily, so never check them by tool name.
 - `tui.py`: the curses terminal UI. Pure `render_*` functions are tested; background threads load data and run jobs; only the main thread draws. Modal input goes through `read_key()` (the main loop's 250ms timeout makes a bare `get_wch` raise). The Chat tab streams `ask.stream` on a thread (`claude.run(cancel=…)` stops it). The Plan tab runs a `rituals.Session`. Only the voice diary (`V`) and sign-ins suspend the UI for a child process, with SIGINT left to the child.
@@ -53,6 +53,15 @@ Plugin skills: `/me:plan`, `/me:shutdown`, `/me:brief`, `/me:approvals`, `/me:as
   - Private writes always run first. If one fails, nothing outward runs. Ticked outward items go through `proposals` (agent `plan` or `shutdown`), so the executor allow-lists and the audit trail apply.
 - `theme.py`: one OKLCH palette engine for both UIs. Themes (`[theme]` in me.toml) plus an adaptive state from `choose()`: how the user feels (check-ins in the last 6h) outranks the clock, which outranks workload. Calm states (`strained`, `rest`) lower saturation and drop glow; never use alarm red for load. Mission Control applies `GET /api/theme` palettes as CSS custom properties; the TUI maps them to xterm-256 (8-colour fallback). Tests require 4.5:1 contrast for every theme × state × mode.
 - `activity.py`: Claude Code time and work stretches from `~/.claude/projects/*/*.jsonl`.
+- `host.py`: everything that differs between macOS, Linux (and WSL) and Windows.
+  - Covers opening links and terminal windows, desktop notifications, where Obsidian keeps its vault list, plugin links (junctions on Windows), process groups and killing a tree (`taskkill /T` on Windows), and Git Bash path spellings for the privacy guard.
+  - On Windows, `me` reruns itself in UTF-8 mode, and scheduled tasks run under pythonw with output sent to `state/logs/`.
+  - Code outside `host.py` and `schedule.py` must stay OS-neutral.
+- `schedule.py`: one job list with three backends: launchd (macOS), systemd user timers (Linux) and Task Scheduler (Windows, XML via `schtasks`). `status()` lines say "not installed" for a missing job, and setup counts on that.
+- `install.sh` (macOS, Linux) and `install.ps1` (Windows) are the installers.
+  - They're idempotent, ask before installing a tool, need no sudo or admin except for git, and check gh and Node.js against their SHA-256 sums.
+  - Sourcing or dot-sourcing a script defines its steps without running them; CI uses this.
+  - `install.sh` must stay bash 3.2 compatible (the bash macOS ships).
 - Settings files:
   - Headless runs use `config/claude-headless.json` (deny rules, memory plugins off) with explicit `--allowedTools`.
   - Interactive sessions use `config/claude-settings.json`.
@@ -67,7 +76,8 @@ Plugin skills: `/me:plan`, `/me:shutdown`, `/me:brief`, `/me:approvals`, `/me:as
 
 ## Code conventions
 
-- Python ≥ 3.11, **stdlib only**. Model calls go through `harness/claude.py`. Mock connectors and `claude.run` in tests.
-- Run `python3 -W error::ResourceWarning -m unittest discover -s tests -t .`.
+- Python ≥ 3.11, **stdlib only**. The one exception is `windows-curses` on Windows, a platform-conditional dependency. Model calls go through `harness/claude.py`. Mock connectors and `claude.run` in tests.
+- Run `python3 -W error::ResourceWarning -m unittest discover -s tests -t .`. On Windows, add `-X utf8`. CI runs the tests and a from-scratch install on macOS, Ubuntu and Windows.
+- Tests must pass on all three systems. Use `os.pathsep`, compare `Path` objects rather than `/`-joined strings, use `helpers.link_templates` rather than `symlink_to`, and give fake executables a `.cmd` twin on Windows.
 - Config lives in `me.toml` (gitignored, created from `me.example.toml`) and `autonomy.toml`. Validate new keys in `harness/config.py`.
 - `ui/` (Vite + React + TS) and `obsidian-plugin/` (TS + esbuild) follow their contracts in `docs/`.

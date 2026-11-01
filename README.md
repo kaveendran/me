@@ -2,19 +2,68 @@
 
 A personal chief-of-staff that runs on top of Claude Code. It connects GitHub, Calendar, Sheets, Jira, OpenWiki and your Obsidian vaults. It plans the day with you, triages work on its own, guards your focus and wellbeing, remembers what matters, and reaches you on your phone. See `CLAUDE.md` for how it behaves.
 
-## Setting it up (new person, new Mac)
+## Install (macOS, Linux, Windows)
 
-There are no harness accounts. me_harness reuses the logins already on the Mac: Claude (your claude.ai account and its connectors), GitHub (`gh`), and an ntfy topic for your phone. Each person runs their own copy; never share one, because the diary lives in it.
+There are no harness accounts. me_harness reuses the logins already on your computer: Claude (your claude.ai account and its connectors), GitHub (`gh`), and an ntfy topic for your phone. Each person runs their own copy; never share one, because the diary lives in it.
 
-**Prerequisites:** macOS, Python 3.11+, [uv](https://docs.astral.sh/uv/), [Claude Code](https://claude.com/claude-code), the GitHub CLI `gh`, Node 20+ (for the two UIs) and Obsidian.
+One command installs everything, then starts the guided setup:
 
-```sh
-git clone <this repo> ~/Documents/me/me_harness && cd ~/Documents/me/me_harness
-uv tool install --editable .            # puts `me` on PATH
-(cd ui && npm install && npm run build) # Mission Control web UI
-(cd obsidian-plugin && npm install && npm run build)
-me setup                                # guided setup in the terminal UI
-```
+| System | Run this in a terminal |
+|---|---|
+| **macOS** | `curl -fsSL https://raw.githubusercontent.com/kaveendran/me/main/install.sh \| bash` |
+| **Linux** (Ubuntu, Debian, Fedora, Arch, openSUSE…) | same as macOS |
+| **Windows 10/11** (PowerShell) | `irm https://raw.githubusercontent.com/kaveendran/me/main/install.ps1 \| iex` |
+| **Windows, in WSL** | the macOS/Linux command, inside your WSL distro (see the notes below) |
+
+What the installer does:
+- **Asks before installing anything.** Missing tools go in your home folder, with no sudo or admin rights:
+  - [uv](https://docs.astral.sh/uv/), which also fetches Python 3.11+ if you don't have it;
+  - [Claude Code](https://claude.com/claude-code), using its official installer;
+  - the GitHub CLI;
+  - Node.js 22, only if you build the web UI.
+- **Checks downloads.** gh and Node.js are checked against their published SHA-256 sums.
+- **Uses the system only for git.** On Linux, git comes from your package manager (sudo). On macOS, it comes from Apple's Command Line Tools. On Windows, it's Git for Windows from winget, which Claude Code needs for Git Bash.
+- **Clones and installs.** It clones this repo to `~/Documents/me/me_harness`, installs the `me` command into `~/.local/bin`, and adds that folder to your PATH.
+- **Builds the extras.** If you say yes, it builds Mission Control and the Obsidian plugin. It also offers to install Obsidian (Homebrew, Flathub or winget).
+- **Can run again.** Running it again updates the clone and reinstalls `me`.
+
+Options (`install.sh --help`):
+
+| Option | bash | PowerShell |
+|---|---|---|
+| Install somewhere else | `--dir PATH` | `-Dir PATH` |
+| Say yes to everything | `--yes` | `-Yes` |
+| Skip the web UI and Obsidian plugin (no Node.js) | `--no-ui` | `-NoUi` |
+| Don't offer Obsidian | `--no-obsidian` | `-NoObsidian` |
+| Don't start `me setup` at the end | `--no-setup` | `-NoSetup` |
+| Remove the jobs, the `/me:*` plugin and the `me` command, keeping your data | `--uninstall` | `-Uninstall` |
+
+To pass options through a pipe:
+- **bash:** `curl -fsSL …/install.sh | bash -s -- --no-ui`
+- **PowerShell:** `& ([scriptblock]::Create((irm …/install.ps1))) -NoUi`
+
+From a clone, `./install.sh` or `powershell -ExecutionPolicy Bypass -File install.ps1` installs that clone as it is.
+
+### What differs by system
+
+| | macOS | Linux | Windows |
+|---|---|---|---|
+| Background jobs (`me schedule`) | launchd LaunchAgents | systemd user timers | Task Scheduler (`\me-harness\`), run windowless |
+| Desktop notifications | Notification Center | `notify-send` | toast notifications |
+| Terminal UI (`me`) | built in | built in | through `windows-curses` (installed with `me`) |
+| Obsidian vault discovery | `~/Library/Application Support/obsidian` | `~/.config/obsidian`, Flatpak and Snap | `%APPDATA%\obsidian` |
+
+Everywhere, jobs run only while you're logged in. A job missed while the computer slept runs at the next chance.
+
+Notes:
+- **Linux.** `me schedule install` needs a systemd user session, which every desktop distro has. To keep jobs running while you're logged out, run `loginctl enable-linger $USER`.
+- **WSL.**
+  - Turn systemd on first: put `[boot]` and `systemd=true` in `/etc/wsl.conf`, then run `wsl --shutdown`.
+  - Jobs only run while WSL is up, and the Obsidian plugin can't reach `me` inside WSL.
+  - For the full experience on Windows, use the native installer instead.
+- **Privacy.** Keep the private vault out of folders that sync to a cloud: iCloud Desktop & Documents, or OneDrive's Documents folder. Obsidian Sync is end-to-end encrypted, so it's fine.
+
+### Then: guided setup
 
 `me setup` creates `me.toml`, detects your name and GitHub login, finds your Obsidian vaults, and shows a checklist. Select a row and press **Enter** to fix it:
 
@@ -30,7 +79,7 @@ me setup                                # guided setup in the terminal UI
 
 The same checklist is in Mission Control (http://127.0.0.1:4777 → **Setup**). It opens automatically on first run.
 
-## What runs on its own (launchd, `me schedule status`)
+## What runs on its own (`me schedule status`)
 
 | Job | When | What |
 |---|---|---|
@@ -95,13 +144,14 @@ How you feel outranks the clock, and the clock outranks workload. Heavy days get
 
 ## Extras
 
-- **Global capture hotkey (macOS Shortcuts):**
-  1. Create a new Shortcut with the actions "Ask for Input (Text)" and then "Run Shell Script" (`/Users/sabesonk/.local/bin/me note "$1"`, input passed as arguments).
-  2. In the Shortcut's details, give it a keyboard shortcut.
+- **Global capture hotkey:**
+  - **macOS (Shortcuts).** Create a new Shortcut with the actions "Ask for Input (Text)" and then "Run Shell Script" (`~/.local/bin/me note "$1"`, input passed as arguments). In the Shortcut's details, give it a keyboard shortcut.
+  - **Linux (GNOME, KDE).** Add a custom keyboard shortcut that runs `sh -c 'me note "$(zenity --entry --title=me)"'`.
+  - **Windows.** Make a desktop shortcut to `powershell -WindowStyle Hidden -Command "me note (Read-Host 'note')"`, and set its "Shortcut key" in Properties.
 - **Mission Control on your phone (Tailscale):**
-  1. Install Tailscale on the Mac and the phone.
+  1. Install Tailscale on the computer and the phone.
   2. Run `tailscale serve --bg 4777`.
-  3. Add your Mac's `*.ts.net` name to `me.toml` [serve] `allowed_hosts`.
+  3. Add the computer's `*.ts.net` name to `me.toml` [serve] `allowed_hosts`.
   4. Open it on the phone and choose "Add to Home Screen". It installs as a PWA.
 
 ## Tests
@@ -109,3 +159,5 @@ How you feel outranks the clock, and the clock outranks workload. Heavy days get
 ```sh
 python3 -W error::ResourceWarning -m unittest discover -s tests -t .
 ```
+
+On Windows, add `-X utf8` (`python -X utf8 -W error::ResourceWarning -m unittest …`) after `pip install -e .`, which brings in `windows-curses`. CI (`.github/workflows/ci.yml`) runs the tests on macOS, Ubuntu and Windows with Python 3.11 and 3.13. It also installs the harness from scratch on each one, the way a new user does.
