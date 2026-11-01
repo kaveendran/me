@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import tomllib
@@ -132,6 +133,7 @@ def parse(raw: dict, home: Path = HOME) -> Config:
             raise ConfigError(f"[paths] missing template for routed kind {kind!r}")
 
     _validate_schedule(raw.get("schedule") or {})
+    _validate_theme(raw.get("theme") or {})
 
     private_dirs = tuple((raw.get("privacy") or {}).get("private_dirs", ()))
     return Config(home, zones, paths, routing, private_dirs, raw)
@@ -154,6 +156,15 @@ def _validate_schedule(s: dict) -> None:
             raise ConfigError(f"[schedule] workdays entries must be one of {', '.join(WEEKDAYS)}, got {d!r}")
 
 
+def _validate_theme(t: dict) -> None:
+    if "mode" in t and t["mode"] not in ("system", "dark", "light"):
+        raise ConfigError(f"[theme] mode must be system, dark or light, got {t['mode']!r}")
+    if "adaptive" in t and not isinstance(t["adaptive"], bool):
+        raise ConfigError("[theme] adaptive must be true or false")
+    if t.get("accent") and not re.fullmatch(r"#[0-9a-fA-F]{6}", t["accent"]):
+        raise ConfigError(f"[theme] accent must look like #4f6bed, got {t['accent']!r}")
+
+
 def load_autonomy(path: Path | None = None, home: Path = HOME) -> dict[str, dict[str, str]]:
     path = path or home / "autonomy.toml"
     with path.open("rb") as f:
@@ -170,20 +181,37 @@ def load_autonomy(path: Path | None = None, home: Path = HOME) -> dict[str, dict
     return raw
 
 
-def set_value(path: Path, section: str, key: str, value: str) -> None:
-    """Set a string value in one TOML section in place, keeping comments."""
+def set_value(path: Path, section: str, key: str, value: str | bool, create: bool = False) -> None:
+    """Set a string or boolean in one TOML section in place, keeping comments.
+
+    With create=True a missing key is added at the end of its section, and a
+    missing section at the end of the file."""
+    rendered = f"{key} = {('true' if value else 'false') if isinstance(value, bool) else json.dumps(value)}\n"
     lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
-    in_section = False
+    in_section, end = False, None
     for i, line in enumerate(lines):
         stripped = line.strip()
         if stripped.startswith("["):
+            if in_section:
+                break
             in_section = stripped == f"[{section}]"
+            end = i + 1 if in_section else end
             continue
         if in_section and re.match(rf"^{re.escape(key)}\s*=", stripped):
-            lines[i] = f'{key} = "{value}"\n'
+            lines[i] = rendered
             path.write_text("".join(lines), encoding="utf-8")
             return
-    raise ConfigError(f"{path}: no {key} in [{section}]")
+        if in_section and stripped:
+            end = i + 1
+    if not create:
+        raise ConfigError(f"{path}: no {key} in [{section}]")
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    if end is None:
+        lines += (["\n"] if lines and lines[-1].strip() else []) + [f"[{section}]\n"]
+        end = len(lines)
+    lines.insert(end, rendered)
+    path.write_text("".join(lines), encoding="utf-8")
 
 
 def autonomy_level(policy: dict, agent: str, action: str) -> str:

@@ -87,3 +87,10 @@ allowed_hosts = []        # extra Host headers, e.g. "mac.tailnet-name.ts.net" f
 
 [memory]
 ignore = [".obsidian/", ".trash/", "_templates/", "Inbox/clips/", "Wellbeing/"]
+
+# Colour theme for Mission Control and the terminal UI (`me theme list`).
+[theme]
+name = "aurora"           # aurora | graphite | fjord | ember | orchid
+mode = "system"           # system | dark | light
+adaptive = true           # the accent follows your workload and check-ins
+accent = ""               # optional fixed accent, e.g. "#4f6bed" (used when the day is steady)

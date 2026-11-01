@@ -418,6 +418,38 @@ def cmd_proposals(args) -> int:
     return 0
 
 
+def cmd_theme(args) -> int:
+    from . import theme
+    cfg = load()
+    if args.theme_cmd == "list":
+        current = theme.prefs(cfg)["name"]
+        for t in theme.THEMES.values():
+            print(f"{'●' if t.id == current else ' '} {t.id:<9} {t.description}")
+        return 0
+    if args.theme_cmd != "show":
+        if args.value is None:
+            raise ValueError(f"me theme {args.theme_cmd} needs a value")
+        value: str | bool = args.value
+        if args.theme_cmd == "adaptive":
+            if value not in ("on", "off"):
+                raise ValueError("me theme adaptive on|off")
+            value = value == "on"
+        elif args.theme_cmd == "accent" and value in ("none", "off"):
+            value = ""
+        cfg = theme.save_prefs(cfg, {"name" if args.theme_cmd == "set" else args.theme_cmd: value})
+    with closing(db.connect(cfg.db_path)) as conn:
+        snap = theme.snapshot(cfg, conn)
+    p, s = snap["prefs"], snap["state"]
+    pal = snap["palette"][theme.terminal_mode(p["mode"])]
+    swatch = "".join(f"\x1b[48;2;{';'.join(map(str, theme.rgb(pal[k])))}m   " for k in ("bg", "surface", "accent", "accent-2")) + "\x1b[0m"
+    print(f"{swatch if sys.stdout.isatty() else ''} {p['name']} · {p['mode']} · adaptive {'on' if p['adaptive'] else 'off'}"
+          + (f" · accent {p['accent']}" if p["accent"] else ""))
+    print(f"now: {s['label']} (load {s['load']}). {s['message']}" + ("" if p["adaptive"] else " (adaptive is off)"))
+    for r in s["reasons"]:
+        print(f"  • {r}")
+    return 0
+
+
 def cmd_tui(start: str) -> int:
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         print("me's terminal UI needs an interactive terminal; see `me --help` for commands")
@@ -641,6 +673,11 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("id", nargs="?")
     pr.add_argument("--all", action="store_true")
     pr.set_defaults(func=cmd_proposals)
+
+    th = sub.add_parser("theme", help="colour theme for both UIs, and the adaptive accent")
+    th.add_argument("theme_cmd", nargs="?", default="show", choices=["show", "list", "set", "mode", "adaptive", "accent"])
+    th.add_argument("value", nargs="?")
+    th.set_defaults(func=cmd_theme)
 
     sub.add_parser("serve", help="Mission Control server + phone reply listener").set_defaults(func=cmd_serve)
     sub.add_parser("tui", help="full-screen terminal UI (also: plain `me`)").set_defaults(func=lambda a: cmd_tui("Today"))

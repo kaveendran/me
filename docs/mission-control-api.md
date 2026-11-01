@@ -185,3 +185,54 @@ Returns `{"ok": true, "profile": {…}}`. Vault paths must be absolute or start 
 ### `POST /api/setup/run/{action_id}`
 
 Returns `{"ok": true, "detail": "…"}`, or `{"ok": false, "detail": "…"}` with status 200. HTTP 400 means an unknown action.
+
+## Theme (colours, and the adaptive accent)
+
+One palette engine (`harness/theme.py`) drives Mission Control and the terminal UI. Colours are built in OKLCH, so every theme keeps readable contrast (text, muted, dim, accent and status colours are all at least 4.5:1 on `bg`, `surface` and `surface-2`).
+
+With **adaptive** on, the applied colours follow a state picked from your workload and how you feel. How you feel outranks the clock, and the clock outranks workload:
+
+| State | When | Look |
+|---|---|---|
+| `strained` "Take it easy" | latest check-in (last 6h) has mood ≤ 2 or stress ≥ 4, or load band is `high` | soft lavender, desaturated, **calm** |
+| `rest` "Off hours" | not a workday, or outside `[schedule] work_hours` | warm, dim, **calm** |
+| `busy` "Busy" | load band `elevated`, or 100+ min without a break | amber |
+| `flow` "In flow" | load ≤ 30 and latest mood or energy ≥ 4 | emerald |
+| `steady` "Steady" | otherwise | the theme's own accent (or `prefs.accent`) |
+
+`calm: true` means: no background glow, no decorative motion, fewer competing colours. Heavy days get quieter, never alarm red.
+
+### `GET /api/theme[?preview=<state id>]`
+
+`preview` resolves the palette for that state without saving anything (used by the Appearance panel's state preview).
+
+```json
+{
+  "prefs":   {"name": "aurora", "mode": "system", "adaptive": true, "accent": ""},
+  "state":   {"id": "rest", "label": "Off hours", "message": "Off the clock. Work can wait until tomorrow.",
+              "reasons": ["Sunday, not a workday", "working past 23:00"], "calm": true, "load": 30, "band": "ok"},
+  "applied": {"id": "rest", "calm": true, "preview": false},
+  "palette": {
+    "dark":  {"bg": "#120c09", "surface": "#1a1310", "surface-2": "#211a17", "surface-3": "#29221f",
+              "border": "#2f2825", "border-strong": "#403935", "text": "#f2edeb", "text-2": "#d1cdca",
+              "muted": "#aba39e", "dim": "#938a86", "accent": "#d9a480", "accent-hover": "#edb793",
+              "accent-ink": "#140e0b", "accent-2": "#db9f9e", "ok": "#6ed889", "warn": "#f5ae39",
+              "bad": "#ffa098", "now": "#ff9bba", "accent-soft": "rgba(217, 164, 128, 0.14)",
+              "accent-2-soft": "rgba(…)", "ok-soft": "rgba(…)", "warn-soft": "rgba(…)", "bad-soft": "rgba(…)",
+              "dim-soft": "rgba(…)", "glow-1": "rgba(217, 164, 128, 0.048)", "glow-2": "rgba(…)"},
+    "light": {"…": "same keys"}
+  },
+  "themes": [{"id": "aurora", "label": "Aurora", "description": "Indigo and teal on deep navy",
+              "swatches": {"dark": ["#090d17", "#10151f", "#9da9ff", "#00ccbc"], "light": ["#f3f7ff", "#ffffff", "#5359ba", "#00766d"]}}],
+  "states": [{"id": "flow", "label": "In flow", "message": "…", "calm": false}]
+}
+```
+
+- `state` is always the live state, even when adaptive is off (the UI can still show it).
+- `applied` is what the palette was resolved for: the preview, else the live state when adaptive is on, else `steady`.
+- Palette keys map one-to-one to CSS custom properties: `palette.dark.bg` → `--bg`.
+- `swatches` are `[bg, surface, accent, accent-2]` for each theme's own (steady) look.
+
+### `POST /api/theme`
+
+Body: any of `{"name": "graphite", "mode": "dark", "adaptive": false, "accent": "#4f6bed"}` (`accent: ""` clears it). Saves to `me.toml` `[theme]` and returns the same payload as `GET /api/theme`. Invalid values → 400.

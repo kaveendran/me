@@ -20,7 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import ask, db, memory, notify, proposals, setup, vault, wellbeing
+from . import ask, db, memory, notify, proposals, setup, theme, vault, wellbeing
 from . import day as daymod
 from . import today as todaymod
 from .config import Config, load
@@ -208,6 +208,7 @@ def make_handler(cfg: Config, secret: str, hosts: set[str], dist: Path):
                         "/api/wellbeing": lambda: wellbeing_view(cfg, conn),
                         "/api/memory/search": lambda: memory.search(cfg, (q.get("q") or [""])[0]),
                         "/api/setup": lambda: setup.snapshot(current(), conn, deep=(q.get("deep") or ["0"])[0] == "1"),
+                        "/api/theme": lambda: theme.snapshot(current(), conn, preview=(q.get("preview") or [None])[0]),
                     }
                     if url.path not in routes:
                         return self._json({"error": "not found"}, 404)
@@ -248,6 +249,8 @@ def make_handler(cfg: Config, secret: str, hosts: set[str], dist: Path):
                         return self._json({"url": visualize(cfg)})
                     if parts == ["api", "setup", "profile"]:
                         return self._json({"ok": True, "profile": setup.profile(setup.save_profile(current(), body))})
+                    if parts == ["api", "theme"]:
+                        return self._json(theme.snapshot(theme.save_prefs(current(), body), conn))
                     if parts[:3] == ["api", "setup", "run"] and len(parts) == 4:
                         if parts[3] not in setup.ACTIONS and parts[3] not in setup.TERMINAL_COMMANDS:
                             return self._json({"error": f"unknown action {parts[3]}"}, 400)
