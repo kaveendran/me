@@ -41,7 +41,7 @@ class SetupBase(unittest.TestCase):
         self.home = Path(self._tmp.name).resolve()
         for name in ("templates", "config", "plugin"):
             (self.home / name).symlink_to(REPO / name)
-        example = (REPO / "me.example.toml").read_text().replace("~/Documents/me/vault", str(self.home / "vault"))
+        example = (REPO / "me.example.toml").read_text().replace("~/Documents/me/vault", (self.home / "vault").as_posix())  # TOML reads C:\U as an escape
         (self.home / "me.example.toml").write_text(example)
         (self.home / "autonomy.toml").write_text((REPO / "autonomy.toml").read_text())
         self.patches = quiet()

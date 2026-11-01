@@ -214,7 +214,8 @@ function Install-Gh {
 
 function Test-Node {
     if (-not ((Have node) -and (Have npm.cmd))) { return $false }
-    $major = & node -p 'process.versions.node.split(".")[0]'
+    # From `node --version` (v22.23.4): Windows PowerShell drops the quotes inside a -p script.
+    $major = ((& node --version) -replace '^v', '' -split '\.')[0]
     return ([int]$major -ge 20)
 }
 
@@ -334,6 +335,7 @@ function Main {
     } else {
         Say 'Next: run  me setup'
     }
+    $global:LASTEXITCODE = 0  # the install worked; don't pass on a helper's exit code
 }
 
 # Dot-sourced (by the CI tests of single steps): define everything, run nothing.
